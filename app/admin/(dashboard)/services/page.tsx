@@ -3,11 +3,14 @@ import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/utils/supabase/client";
 
 type Row={
-  id:string; name:string; description:string; sort_order:number; active:boolean;
+  id:string; name:string; description:string; sort_order:string; active:boolean;
   hours:string; cleaners:string; isNew?:boolean;
 };
 
-const empty=():Row=>({id:"",name:"",description:"",sort_order:99,active:true,hours:"5",cleaners:"1",isNew:true});
+// Coerced on save, never in onChange, so a cleared box can stay empty.
+const num=(v:string|number)=>Number(String(v).replace(/[^0-9.]/g,""))||0;
+
+const empty=():Row=>({id:"",name:"",description:"",sort_order:"99",active:true,hours:"5",cleaners:"1",isNew:true});
 
 export default function ServicesAdmin(){
   const [items,setItems]=useState<Row[]>([]);
@@ -33,7 +36,7 @@ export default function ServicesAdmin(){
       const rateMap:Record<string,any>={};
       (r||[]).forEach((x:any)=>rateMap[x.service_id]=x);
       setItems((s||[]).map((x:any)=>({
-        id:x.id,name:x.name,description:x.description,sort_order:x.sort_order,active:x.active,
+        id:x.id,name:x.name,description:x.description,sort_order:String(x.sort_order),active:x.active,
         hours:String(rateMap[x.id]?.default_hours??5),
         cleaners:String(rateMap[x.id]?.default_cleaners??1)
       })));
@@ -58,7 +61,7 @@ export default function ServicesAdmin(){
       let id=row.id;
       if(row.isNew){
         const {data,error:err}=await supabase.from("services").insert({
-          name:row.name.trim(),description:row.description,sort_order:row.sort_order,active:row.active
+          name:row.name.trim(),description:row.description,sort_order:num(row.sort_order),active:row.active
         }).select("id").single();
         if(err) throw err;
         id=data.id;
@@ -67,7 +70,7 @@ export default function ServicesAdmin(){
         if(rerr) throw rerr;
       }else{
         const {error:err}=await supabase.from("services")
-          .update({name:row.name.trim(),description:row.description,sort_order:row.sort_order,active:row.active})
+          .update({name:row.name.trim(),description:row.description,sort_order:num(row.sort_order),active:row.active})
           .eq("id",row.id);
         if(err) throw err;
         const {error:rerr}=await supabase.from("service_rates")
@@ -134,7 +137,7 @@ export default function ServicesAdmin(){
           <td><input value={row.description} onChange={e=>patch(row.id,{description:e.target.value})} placeholder="Description"/></td>
           <td><input type="number" min={0} step={0.5} style={{width:80}} value={row.hours} onChange={e=>patch(row.id,{hours:e.target.value})}/></td>
           <td><input type="number" min={1} step={1} style={{width:70}} value={row.cleaners} onChange={e=>patch(row.id,{cleaners:e.target.value})}/></td>
-          <td><input type="number" style={{width:70}} value={row.sort_order} onChange={e=>patch(row.id,{sort_order:Number(e.target.value)||0})}/></td>
+          <td><input type="number" style={{width:70}} value={row.sort_order} onChange={e=>patch(row.id,{sort_order:e.target.value})}/></td>
           <td>
             <button className={"pill"+(row.active?" active":"")} onClick={()=>toggleActive(row)} disabled={!!row.isNew}>
               {row.active?"Visible":"Hidden"}

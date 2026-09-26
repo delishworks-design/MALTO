@@ -52,13 +52,16 @@ h3 { font:normal 25px Georgia,serif; margin:0 0 10px; }
 .progress { display:flex; gap:6px; margin-bottom:35px; }
 .progress span { height:3px; flex:1; background:var(--border); }
 .progress span.active { background:var(--sage); }
-.form-grid { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
-.field { display:flex; flex-direction:column; gap:8px; }
+/* minmax(0,1fr) lets a track shrink below its content's min-content width.
+   Without the 0 floor a wide <input type="date"> sizes the whole track and
+   pushes the neighbouring column into it. */
+.form-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; }
+.field { display:flex; flex-direction:column; gap:8px; min-width:0; }
 .field.full { grid-column:1/-1; }
 label { font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:var(--graygreen); }
-input, select, textarea { width:100%; border:1px solid var(--border); background:var(--ivory); padding:13px 14px; color:var(--charcoal); outline:none; }
+input, select, textarea { width:100%; min-width:0; border:1px solid var(--border); background:var(--ivory); padding:13px 14px; color:var(--charcoal); outline:none; }
 textarea { min-height:110px; resize:vertical; }
-.choice-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.choice-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
 .choice { border:1px solid var(--border); padding:18px; background:var(--white); }
 .choice input { width:auto; margin-right:8px; }
 .booking-actions { display:flex; justify-content:space-between; gap:12px; margin-top:30px; }
@@ -76,10 +79,10 @@ th,td { text-align:left; padding:15px; border-bottom:1px solid var(--border); fo
 th { color:var(--graygreen); font-weight:normal; }
 @media(max-width:800px) {
  .navlinks { display:none; } .hero {padding:75px 0;} .hero-grid,.grid4,.price-grid,.steps,.kpis {grid-template-columns:1fr 1fr;}
- .section-head,.footer-grid {display:block;} .section-head p {margin-top:20px;} .form-grid {grid-template-columns:1fr;} .field.full {grid-column:auto;}
+ .section-head,.footer-grid {display:block;} .section-head p {margin-top:20px;} .form-grid {grid-template-columns:minmax(0,1fr);} .field.full {grid-column:auto;}
 }
 @media(max-width:520px) {
- .container {width:min(100% - 28px,1120px);} .grid4,.price-grid,.steps,.kpis,.choice-grid {grid-template-columns:1fr;}
+ .container {width:min(100% - 28px,1120px);} .grid4,.price-grid,.steps,.kpis,.choice-grid {grid-template-columns:minmax(0,1fr);}
  .booking-shell {padding:22px;} h1 {font-size:52px;} .hero-grid {grid-template-columns:1fr;} .nav .btn {display:none;}
 }
 
@@ -131,7 +134,11 @@ th { color:var(--graygreen); font-weight:normal; }
 .custcard-head { display:flex; justify-content:space-between; gap:14px; align-items:flex-start; }
 .custcard-name { font:18px Georgia,serif; display:block; }
 .custcard-stats { display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin-top:12px; }
-.custcard-body { border-top:1px solid var(--border); margin-top:16px; padding-top:14px; cursor:default; }
+/* The booking table has more columns than a ~330px card can hold, so it scrolls
+   inside the card instead of spilling out of it. */
+.custcard-body { border-top:1px solid var(--border); margin-top:16px; padding-top:14px; cursor:default; overflow-x:auto; }
+.custcard-body table { min-width:100%; }
+.custcard-body td:last-child, .custcard-body th:last-child { white-space:nowrap; }
 .custcard-body .row { display:flex; justify-content:space-between; gap:14px; padding:9px 0; border-bottom:1px dashed var(--border); font-size:13px; }
 .custcard-body .row:last-child { border-bottom:0; }
 
@@ -157,17 +164,20 @@ th { color:var(--graygreen); font-weight:normal; }
 .teamcard { background:var(--white); border:1px solid var(--border); }
 .teamcard-top { display:flex; gap:16px; align-items:center; padding:18px; cursor:pointer; }
 .teamcard-body { border-top:1px solid var(--border); padding:18px; cursor:default; }
+/* A team card is only ~360px wide, so two columns of inputs leave no breathing
+   room for a date picker. One column per row. */
+.teamcard-body .form-grid { grid-template-columns:minmax(0,1fr); }
 .teamphoto { width:76px; height:76px; object-fit:cover; border:1px solid var(--border); flex:0 0 auto; }
 .teamphoto-empty { display:flex; align-items:center; justify-content:center; background:var(--ivory); font:26px Georgia,serif; color:var(--sage); }
 
 .faqedit { display:flex; flex-direction:column; gap:12px; }
-.faqrow { display:grid; grid-template-columns:1fr 1.6fr auto; gap:10px; align-items:start; }
+.faqrow { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.6fr) auto; gap:10px; align-items:start; }
 .empty { opacity:.5; }
 
 @media(max-width:800px) {
  .cal-day { min-height:64px; padding:6px 5px; }
  .cal-count { position:static; display:inline-block; margin-top:6px; }
- .faqrow { grid-template-columns:1fr; }
+ .faqrow { grid-template-columns:minmax(0,1fr); }
  .custcard-head { flex-direction:column; }
 }
 @media(max-width:520px) {

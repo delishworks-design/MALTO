@@ -52,7 +52,7 @@ export default function SettingsAdmin(){
 
   const [pw1,setPw1]=useState(""); const [pw2,setPw2]=useState("");
 
-  const [email,setEmail]=useState({smtp_host:"",smtp_port:465,smtp_secure:true,smtp_user:"",from_name:"",from_email:"",reply_to:""});
+  const [email,setEmail]=useState({smtp_host:"",smtp_port:"465",smtp_secure:true,smtp_user:"",from_name:"",from_email:"",reply_to:""});
   const [hasPass,setHasPass]=useState(false);
   const [newPass,setNewPass]=useState("");
 
@@ -74,7 +74,7 @@ export default function SettingsAdmin(){
       setSettings(map);
       try{ setFaq(JSON.parse(map.faq_items||"[]")); }catch{ setFaq([]); }
       if(es&&es[0]) setEmail({
-        smtp_host:es[0].smtp_host,smtp_port:Number(es[0].smtp_port),smtp_secure:!!es[0].smtp_secure,
+        smtp_host:es[0].smtp_host,smtp_port:String(es[0].smtp_port),smtp_secure:!!es[0].smtp_secure,
         smtp_user:es[0].smtp_user,from_name:es[0].from_name,from_email:es[0].from_email,reply_to:es[0].reply_to
       });
       try{
@@ -199,7 +199,7 @@ export default function SettingsAdmin(){
         <div className="field"><label>SMTP host</label>
           <input value={email.smtp_host} onChange={e=>setEmail(s=>({...s,smtp_host:e.target.value}))} placeholder="smtp.gmail.com"/></div>
         <div className="field"><label>SMTP port</label>
-          <input type="number" value={email.smtp_port} onChange={e=>setEmail(s=>({...s,smtp_port:Number(e.target.value)||0}))}/></div>
+          <input type="number" value={email.smtp_port} onChange={e=>setEmail(s=>({...s,smtp_port:e.target.value}))}/></div>
         <div className="field"><label>Username (Gmail address)</label>
           <input value={email.smtp_user} onChange={e=>setEmail(s=>({...s,smtp_user:e.target.value}))} placeholder="you@gmail.com"/></div>
         <div className="field"><label>Secure (SSL / port 465)</label>

@@ -6,11 +6,14 @@ const TEAM_BUCKET="team-photos";
 
 type Member={
   id:string; name:string; role:string; phone:string; email:string;
-  hire_date:string; bio:string; photo_path:string; active:boolean; sort_order:number;
+  hire_date:string; bio:string; photo_path:string; active:boolean; sort_order:string;
   isNew?:boolean;
 };
 
-const blank=():Member=>({id:"",name:"",role:"",phone:"",email:"",hire_date:"",bio:"",photo_path:"",active:true,sort_order:99,isNew:true});
+// Coerced on save, never in onChange, so a cleared box can stay empty.
+const num=(v:string|number)=>Number(String(v).replace(/[^0-9.]/g,""))||0;
+
+const blank=():Member=>({id:"",name:"",role:"",phone:"",email:"",hire_date:"",bio:"",photo_path:"",active:true,sort_order:"99",isNew:true});
 
 export default function TeamAdmin(){
   const [items,setItems]=useState<Member[]>([]);
@@ -34,7 +37,7 @@ export default function TeamAdmin(){
       setItems((data||[]).map(m=>({
         id:m.id,name:m.name,role:m.role,phone:m.phone,email:m.email,
         hire_date:m.hire_date||"",bio:m.bio,photo_path:m.photo_path,
-        active:m.active,sort_order:m.sort_order
+        active:m.active,sort_order:String(m.sort_order??"")
       })));
     }catch(e:any){ setError(e?.message||"Could not load team."); }
     finally{ setLoading(false); }
@@ -100,7 +103,7 @@ export default function TeamAdmin(){
       const payload={
         name:m.name.trim(),role:m.role,phone:m.phone,email:m.email,
         hire_date:m.hire_date||null,bio:m.bio,photo_path:m.photo_path,
-        active:m.active,sort_order:m.sort_order
+        active:m.active,sort_order:num(m.sort_order)
       };
       if(m.isNew){
         const {error:err}=await supabase.from("team_members").insert(payload);
@@ -178,7 +181,7 @@ export default function TeamAdmin(){
               <div className="field"><label>Date hired</label>
                 <input type="date" value={m.hire_date} onChange={e=>patch(key,{hire_date:e.target.value})}/></div>
               <div className="field"><label>Sort order</label>
-                <input type="number" value={m.sort_order} onChange={e=>patch(key,{sort_order:Number(e.target.value)||0})}/></div>
+                <input type="number" value={m.sort_order} onChange={e=>patch(key,{sort_order:e.target.value})}/></div>
               <div className="field full"><label>Short bio</label>
                 <textarea value={m.bio} onChange={e=>patch(key,{bio:e.target.value})}
                   placeholder="Taon ng karanasan, specialty, atbp."/></div>
