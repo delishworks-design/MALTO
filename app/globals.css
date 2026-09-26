@@ -66,6 +66,9 @@ textarea { min-height:110px; resize:vertical; }
 .choice input { width:auto; margin-right:8px; }
 .booking-actions { display:flex; justify-content:space-between; gap:12px; margin-top:30px; }
 .notice { padding:16px; background:var(--softsage); color:var(--charcoal); line-height:1.6; margin:20px 0; }
+.action-needed { border:1px solid #E0B44A; border-left:4px solid #C9962B; background:#FDF6E4; padding:16px 18px; margin:0 0 22px; line-height:1.9; }
+.action-needed strong { display:block; font-size:12px; letter-spacing:.1em; color:#8A6420; margin-bottom:6px; }
+.action-needed .linkbtn { color:#6B4E14; }
 .estimate { background:var(--ivory); padding:20px; border:1px solid var(--border); margin-top:25px; }
 .admin { min-height:100vh; background:var(--ivory); }
 .admin-nav { padding:22px 30px; background:var(--charcoal); color:white; display:flex; justify-content:space-between; }

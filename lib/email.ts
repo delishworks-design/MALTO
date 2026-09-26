@@ -253,6 +253,36 @@ export async function sendQuoteEmail(input: QuoteEmailInput): Promise<{ to: stri
   return { to: input.to };
 }
 
+/** Sent to the customer the moment a booking lands, so they are not left
+ *  guessing. Deliberately carries no price and no rates: the final quote is a
+ *  separate email the admin sends after review. */
+export async function sendBookingReceived(booking: NewBooking): Promise<{ to: string }> {
+  const cfg = await loadEmailConfig();
+  const to = (booking.email ?? "").trim();
+  if (!to) throw new Error("This booking has no email address, so no acknowledgement was sent.");
+
+  const subject = `We received your booking${booking.booking_ref ? ` · ${booking.booking_ref}` : ""}`;
+  const html = shell(
+    "We received your booking",
+    `<p>Hi ${esc(booking.names || "there")},</p>
+     <p>Thank you for booking with MALTO. We have your request and will review the details before confirming the price.</p>
+     ${rows([
+       ["Request ID", esc(booking.booking_ref)],
+       ["Service", esc(booking.services)],
+       ["Preferred date", esc(fmtDate(booking.date))],
+       ["Preferred time", esc(booking.time)],
+       ["Address", esc(booking.adress)],
+       ["City / Province", esc([booking.city].filter(Boolean).join(", "))],
+       ["Property", esc(booking.property)],
+     ])}
+     <p style="font-size:14px;">We will email you again shortly with your final price. Nothing to pay yet.</p>
+     ${btn(`${siteUrl()}/book`, "Book another cleaning")}`
+  );
+
+  await sendMail(cfg, { to, subject, html });
+  return { to };
+}
+
 /** Small smoke test used from Settings → Email. */
 export async function sendTestEmail(to: string): Promise<{ to: string }> {
   const cfg = await loadEmailConfig();

@@ -56,6 +56,40 @@ export default function SettingsAdmin(){
   const [hasPass,setHasPass]=useState(false);
   const [newPass,setNewPass]=useState("");
 
+  // Undelivered emails from the outbox, so a booking notification that could
+  // not be sent is visible here instead of disappearing.
+  const [failedMails,setFailedMails]=useState<{id:string;kind:string;to_email:string;attempts:number;last_error:string|null;created_at:string}[]>([]);
+  const [retryingMail,setRetryingMail]=useState(false);
+
+  const loadFailedMail=useCallback(async()=>{
+    try{
+      const supabase=createClient();
+      const {data,error:err}=await supabase
+        .from("email_outbox")
+        .select("id,kind,to_email,attempts,last_error,created_at")
+        .eq("status","failed")
+        .order("created_at",{ascending:false})
+        .limit(20);
+      if(err) throw err;
+      setFailedMails((data as any[])||[]);
+    }catch{
+      setFailedMails([]);
+    }
+  },[]);
+
+  useEffect(()=>{ loadFailedMail(); },[loadFailedMail]);
+
+  const retryFailedMail=async()=>{
+    if(retryingMail) return;
+    setRetryingMail(true);
+    try{
+      await fetch("/api/admin/retry-emails",{method:"POST"});
+      await loadFailedMail();
+    }finally{
+      setRetryingMail(false);
+    }
+  };
+
   const flash=(m:string)=>{ setNotice(m); setTimeout(()=>setNotice(null),3000); };
 
   const load=useCallback(async()=>{
@@ -236,6 +270,35 @@ export default function SettingsAdmin(){
           </p>
         </div>
       </div>
+    </div>
+
+    {/* -------- EMAIL DELIVERY -------- */}
+    <div className="panel">
+      <div className="panel-head"><strong>Email delivery</strong><span className="small muted">Naiire-record ang bawat email bago ipadala, at sinusubukan muli hanggang matagumpay</span></div>
+      {failedMails.length===0
+        ? <p className="small muted" style={{margin:0}}>Walang email na hindi naipadala. Lahat ay na-send.</p>
+        : <>
+          <p className="small" style={{margin:"0 0 14px"}}>
+            {failedMails.length} email{failedMails.length===1?"":"s"} na hindi naipadala. Automatic retry pa rin ang tumatakbo bawat 5 minuto.
+          </p>
+          <div className="table" style={{marginTop:0}}>
+            <table>
+              <thead><tr><th>Uri</th><th>Type</th><th>Saan</th><th>Attempts</th><th>Error</th><th>Nailan</th></tr></thead>
+              <tbody>{failedMails.map(m=>
+                <tr key={m.id}>
+                  <td className="small">{m.created_at?new Date(m.created_at).toLocaleString("en-PH"):"—"}</td>
+                  <td className="small">{m.kind}</td>
+                  <td className="small">{m.to_email||"(admin inbox)"}</td>
+                  <td className="small">{m.attempts}/5</td>
+                  <td className="small" style={{color:"#8A2C1D"}}>{m.last_error||"—"}</td>
+                </tr>)}
+              </tbody>
+            </table>
+          </div>
+          <button className="btn secondary" style={{marginTop:14,minHeight:42}} disabled={retryingMail} onClick={retryFailedMail}>
+            {retryingMail?"RETRYING…":"RETRY ALL NOW"}
+          </button>
+        </>}
     </div>
 
     {/* -------- WEBSITE CONFIGURATION -------- */}

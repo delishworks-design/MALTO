@@ -112,6 +112,46 @@ export default function Bookings(){
 
   const statusCounts=useMemo(()=>STATUSES.map(s=>({s,n:rows.filter(r=>r.status===s).length})),[rows]);
 
+  // --- Action needed ------------------------------------------------------
+  // A booking with no quote, and any email the outbox could not deliver. Both
+  // counters are independent but usually related: a quote that failed to send
+  // leaves the booking sitting at New Request, so it shows up in both.
+  const waitingOnQuote=useMemo(
+    ()=>rows.filter(r=>r.status==="New Request"&&(r.price===null||r.price===undefined||r.price==="")).length,
+    [rows]
+  );
+  const [emailFailed,setEmailFailed]=useState(0);
+  const [retryingEmails,setRetryingEmails]=useState(false);
+
+  const loadEmailFailures=useCallback(async()=>{
+    try{
+      const supabase=createClient();
+      const {count,error:err}=await supabase
+        .from("email_outbox")
+        .select("id",{count:"exact",head:true})
+        .eq("status","failed");
+      if(err) throw err;
+      setEmailFailed(count??0);
+    }catch{
+      // The outbox is not a critical read: if it is unavailable, the dashboard
+      // should still work, just without this one counter.
+      setEmailFailed(0);
+    }
+  },[]);
+
+  useEffect(()=>{ loadEmailFailures(); },[loadEmailFailures,lastUpdated]);
+
+  const retryEmails=async()=>{
+    if(retryingEmails) return;
+    setRetryingEmails(true);
+    try{
+      await fetch("/api/admin/retry-emails",{method:"POST"});
+      await loadEmailFailures();
+    }finally{
+      setRetryingEmails(false);
+    }
+  };
+
   const filtered=useMemo(()=>{
     const q=search.trim().toLowerCase();
     let out=rows.filter(b=>{
@@ -240,6 +280,19 @@ export default function Bookings(){
 
     <div className="eyebrow">DASHBOARD</div>
     <h1>Operations overview.</h1>
+
+    {(waitingOnQuote>0||emailFailed>0)&&
+      <div className="action-needed">
+        <strong>ACTION NEEDED</strong>
+        {waitingOnQuote>0&&
+          <div>{`${waitingOnQuote} booking${waitingOnQuote===1?" is":"s are"} waiting on a quote. `}
+            <button className="linkbtn" onClick={()=>{ setStatusFilter("New Request"); setQuick(null); }}>Review them</button>
+          </div>}
+        {emailFailed>0&&
+          <div>{`${emailFailed} email${emailFailed===1?"":"s"} could not be sent. Automatic retry is still running. `}
+            <button className="linkbtn" disabled={retryingEmails} onClick={retryEmails}>{retryingEmails?"Retrying…":"Retry now"}</button>
+          </div>}
+      </div>}
 
     <div className="kpis">
       {kpis.map(k=><div key={k.key}

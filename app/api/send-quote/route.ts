@@ -1,5 +1,6 @@
 import { requireAdmin, readJson } from "@/lib/admin-auth";
-import { loadEmailConfig, sendQuoteEmail } from "@/lib/email";
+import { loadEmailConfig } from "@/lib/email";
+import { enqueueEmail, drainOutbox } from "@/lib/email-outbox";
 
 export const runtime = "nodejs";
 
@@ -7,8 +8,13 @@ export const runtime = "nodejs";
  * Final price + confirmation email.
  *
  * Auth: admin session cookie (Settings → Account is the only other way in).
- * Effect: saves `price`, optionally flips the status to `Confirmed`, then
- * emails the customer their quote.
+ *
+ * The price and the Confirmed status are written by complete_email_outbox()
+ * inside the database, and only once the quote email has actually been sent.
+ * That is the whole point of this route: previously it wrote both first and
+ * emailed second, so an SMTP failure left a booking marked Confirmed that the
+ * customer had never heard about. Now a failure leaves the booking untouched
+ * and the queued row is retried automatically.
  */
 export async function POST(req: Request) {
   const guard = await requireAdmin();
@@ -17,7 +23,6 @@ export async function POST(req: Request) {
   const body = readJson(await req.json().catch(() => null));
   const bookingId = String(body.booking_id ?? "").trim();
   const price = Number(body.price);
-  const confirm = body.confirm !== false;
 
   if (!bookingId) {
     return Response.json({ ok: false, error: "booking_id is required." }, { status: 400 });
@@ -44,44 +49,62 @@ export async function POST(req: Request) {
     );
   }
 
-  // Fail fast on SMTP problems before anything is written.
+  // Fail fast on a missing or unreadable SMTP config: better a clear error now
+  // than a row that silently burns its five attempts.
   try {
     await loadEmailConfig();
   } catch (err: any) {
     return Response.json({ ok: false, error: String(err?.message ?? err) }, { status: 502 });
   }
 
-  const patch: Record<string, any> = { price };
-  if (confirm && booking.status !== "Cancelled") patch.status = "Confirmed";
-
-  const { error: writeErr } = await guard.supabase
-    .from("bookings")
-    .update(patch)
-    .eq("id", bookingId);
-  if (writeErr) {
-    return Response.json({ ok: false, error: writeErr.message }, { status: 500 });
-  }
-
+  // One row per click, so a retry after a failure cannot send a second copy
+  // of a quote that already went out.
+  let rowId: string | null;
   try {
-    const { to } = await sendQuoteEmail({
-      to: booking.email,
-      name: booking.names ?? "",
-      bookingRef: booking.booking_ref ?? "",
-      serviceName: booking.services ?? "",
-      date: booking.date ?? "",
+    rowId = await enqueueEmail({
+      bookingId,
+      kind: "quote",
+      toEmail: booking.email,
       price,
-    });
-    return Response.json({
-      ok: true,
-      to,
-      price,
-      status: patch.status ?? booking.status ?? "New Request",
+      payload: {
+        booking_ref: booking.booking_ref,
+        names: booking.names,
+        services: booking.services,
+        date: booking.date,
+        notes: booking.admin_notes,
+      },
     });
   } catch (err: any) {
-    console.error("[send-quote] email failed:", err?.message ?? err);
     return Response.json(
-      { ok: false, error: `Price saved, but the email could not be sent: ${String(err?.message ?? err)}` },
-      { status: 502 }
+      { ok: false, error: `Could not queue the quote email: ${String(err?.message ?? err)}` },
+      { status: 500 }
     );
   }
+
+  // Try immediately rather than making the admin wait for the next cron tick.
+  const result = await drainOutbox(25);
+  const sent = result.sent > 0 && !result.errors.some((e) => e.id === rowId);
+
+  if (sent) {
+    return Response.json({
+      ok: true,
+      to: booking.email,
+      price,
+      status: booking.status === "Cancelled" ? booking.status : "Confirmed",
+      queued: result.claimed,
+    });
+  }
+
+  const failure = result.errors.find((e) => e.id === rowId);
+  return Response.json(
+    {
+      ok: false,
+      queued: true,
+      willRetry: true,
+      error: `The quote is queued and will be retried automatically, but it could not be sent yet: ${
+        failure?.error ?? "unknown error"
+      }. The booking is not marked Confirmed.`,
+    },
+    { status: 202 }
+  );
 }
