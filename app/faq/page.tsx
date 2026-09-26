@@ -1,2 +1,24 @@
 import Link from "next/link";
-export default function FAQ(){return <main><header className="header"><div className="container nav"><Link href="/" className="logo">MALTO<small>CLEANING SERVICES</small></Link><Link className="btn" href="/book">BOOK A CLEANING</Link></div></header><section className="section"><div className="container"><div className="eyebrow">FAQ</div><h1>Frequently asked questions.</h1><div className="faq"><details open><summary>Do I need to provide cleaning supplies?</summary><p>You may provide materials, or MALTO can provide them for an additional fee.</p></details><details><summary>What if my home is very dirty?</summary><p>Please indicate the condition during booking so MALTO can estimate the appropriate scope, time and number of cleaners.</p></details><details><summary>Do you offer same-day availability?</summary><p>Subject to availability.</p></details><details><summary>Is the price shown on the website final?</summary><p>No. Starting prices are estimates. Final pricing is confirmed after MALTO reviews the request.</p></details></div></div></section></main>}
+import { getSiteData, REVALIDATE } from "@/lib/site";
+
+export const revalidate = REVALIDATE;
+
+export async function generateMetadata() {
+  const d = await getSiteData();
+  return { title: `${d.s("faq_heading")} | MALTO Cleaning Services`, description: d.seo.description };
+}
+
+export default async function FAQPage() {
+  const d = await getSiteData();
+  return <main>
+    <header className="header"><div className="container nav">
+      <Link href="/" className="logo">MALTO<small>CLEANING SERVICES</small></Link>
+      <Link className="btn" href="/book">{d.s("cta_primary")}</Link>
+    </div></header>
+    <section className="section"><div className="container">
+      <div className="eyebrow">FAQ</div>
+      <h1>{d.s("faq_heading")}</h1>
+      <div className="faq">{d.faq.map((f,i)=><details key={f.q} open={i===0||undefined}><summary>{f.q}</summary><p>{f.a}</p></details>)}</div>
+    </div></section>
+  </main>;
+}

@@ -1,10 +1,10 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 
 const steps=["Service","Property","Scope","Materials","Location","Schedule","Customer","Review"];
-const serviceOptions=["Home Cleaning","Deep Cleaning","Move-In / Move-Out","Small Business"];
+const DEFAULT_SERVICE_OPTIONS=["Home Cleaning","Deep Cleaning","Move-In / Move-Out","Small Business"];
 const propertyOptions=["Condo","Apartment","House","Office","Shop/Studio","Other"];
 const areas=["Living room","Bedrooms","Kitchen","Bathrooms","Floors","Windows","Balcony","Appliances","Other"];
 
@@ -47,9 +47,30 @@ export default function Book() {
  const [photoNote,setPhotoNote]=useState<string|null>(null);
  const [bookingRef,setBookingRef]=useState("");
  const [data,setData]=useState<Record<string,any>>({service:"",property:"",areas:[],condition:"Normal",materials:"Customer provides materials",time:"Morning",photo:null});
+ const [serviceOptions,setServiceOptions]=useState<string[]>(DEFAULT_SERVICE_OPTIONS);
+ const [startingPrice,setStartingPrice]=useState("₱1,300+");
+ const [deepPrice,setDeepPrice]=useState("₱3,500+");
+ useEffect(()=>{
+   let alive=true;
+   (async()=>{
+     try{
+       const [svc,cards,settings]=await Promise.all([
+         supabase.from("services").select("name,active,sort_order").order("sort_order"),
+         supabase.from("price_cards").select("label,amount,suffix").eq("label","Deep Cleaning").maybeSingle(),
+         supabase.from("site_settings").select("key,value").eq("key","pricing_starting_from").maybeSingle()
+       ]);
+       if(!alive) return;
+       const names=(svc.data||[]).filter(r=>r.active!==false&&r.name).map(r=>r.name);
+       if(names.length) setServiceOptions(names);
+       if(cards.data) setDeepPrice(`₱${Number(cards.data.amount||0).toLocaleString("en-PH")}${cards.data.suffix||""}`);
+       if(settings.data?.value) setStartingPrice(String(settings.data.value));
+     }catch{ /* keep hardcoded defaults */ }
+   })();
+   return ()=>{alive=false;};
+ },[]);
  const set=(k:string,v:any)=>setData(d=>({...d,[k]:v}));
  const toggleArea=(a:string)=>set("areas",(data.areas||[]).includes(a)?data.areas.filter((x:string)=>x!==a):[...(data.areas||[]),a]);
- const estimate=useMemo(()=>({cleaners:data.property==="House"||data.property==="Office"?2:1,hours:data.service==="Deep Cleaning"?6:5,price:data.service==="Deep Cleaning"?"₱3,500+":"₱1,300+"}),[data]);
+ const estimate=useMemo(()=>({cleaners:data.property==="House"||data.property==="Office"?2:1,hours:data.service==="Deep Cleaning"?6:5,price:data.service==="Deep Cleaning"?deepPrice:startingPrice}),[data,deepPrice,startingPrice]);
 
  const onPhoto=(file:File|null)=>{
    if(!file){set("photo",null);setError(null);return;}

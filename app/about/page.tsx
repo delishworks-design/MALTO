@@ -1,2 +1,24 @@
 import Link from "next/link";
-export default function About(){return <main><header className="header"><div className="container nav"><Link href="/" className="logo">MALTO<small>CLEANING SERVICES</small></Link><Link className="btn" href="/book">BOOK A CLEANING</Link></div></header><section className="section"><div className="container"><div className="eyebrow">ABOUT MALTO</div><h1>Small Team. Serious About the Work.</h1><p className="lead">MALTO is a local cleaning service focused on reliable service, careful work, transparent pricing and professional presentation.</p></div></section></main>}
+import { getSiteData, REVALIDATE } from "@/lib/site";
+
+export const revalidate = REVALIDATE;
+
+export async function generateMetadata() {
+  const d = await getSiteData();
+  return { title: `${d.s("about_title")} | MALTO Cleaning Services`, description: d.s("about_lead") || d.seo.description };
+}
+
+export default async function About() {
+  const d = await getSiteData();
+  return <main>
+    <header className="header"><div className="container nav">
+      <Link href="/" className="logo">MALTO<small>CLEANING SERVICES</small></Link>
+      <Link className="btn" href="/book">{d.s("cta_primary")}</Link>
+    </div></header>
+    <section className="section"><div className="container">
+      <div className="eyebrow">ABOUT MALTO</div>
+      <h1>{d.s("about_title")}</h1>
+      <p className="lead">{d.s("about_lead")}</p>
+    </div></section>
+  </main>;
+}

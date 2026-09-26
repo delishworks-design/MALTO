@@ -1,3 +1,25 @@
 import Link from "next/link";
-const p=[["Studio / Room","₱1,300+"],["1BR","₱1,650+"],["2BR","₱2,800+"],["3BR","₱3,400+"],["Small House","₱4,000+"],["Deep Cleaning","₱3,500+"],["Move-In / Move-Out","₱3,500+"],["Small Office","₱2,800+"]];
-export default function Pricing(){return <main><header className="header"><div className="container nav"><Link href="/" className="logo">MALTO<small>CLEANING SERVICES</small></Link><Link className="btn" href="/book">GET AN ESTIMATE</Link></div></header><section className="section"><div className="container"><div className="eyebrow">PRICING</div><h1>Starting prices.</h1><p className="lead">Final pricing depends on property size, condition, cleaning scope, number of cleaners, estimated hours, location and materials.</p><div className="price-grid" style={{marginTop:40}}>{p.map(([n,v])=><div className="price" key={n}><span className="small">{n}</span><strong>{v}</strong></div>)}</div></div></section></main>}
+import { getSiteData, formatPrice, REVALIDATE } from "@/lib/site";
+
+export const revalidate = REVALIDATE;
+
+export async function generateMetadata() {
+  const d = await getSiteData();
+  return { title: `${d.s("pricing_heading")} | MALTO Cleaning Services`, description: d.s("pricing_disclaimer") || d.seo.description };
+}
+
+export default async function Pricing() {
+  const d = await getSiteData();
+  return <main>
+    <header className="header"><div className="container nav">
+      <Link href="/" className="logo">MALTO<small>CLEANING SERVICES</small></Link>
+      <Link className="btn" href="/book">{d.s("cta_estimate")}</Link>
+    </div></header>
+    <section className="section"><div className="container">
+      <div className="eyebrow">PRICING</div>
+      <h1>{d.s("pricing_heading")}</h1>
+      <p className="lead">{d.s("pricing_disclaimer")}</p>
+      <div className="price-grid" style={{marginTop:40}}>{d.cards.map(x=><div className="price" key={x.label}><span className="small">{x.label}</span><strong>{formatPrice(x.amount,x.suffix)}</strong></div>)}</div>
+    </div></section>
+  </main>;
+}

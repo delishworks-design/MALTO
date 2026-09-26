@@ -1,3 +1,24 @@
 import Link from "next/link";
-const data=[["Home Cleaning","Regular cleaning for apartments, condos and homes."],["Deep Cleaning","For spaces needing extra attention."],["Move-In / Move-Out","Preparing a space for its next chapter."],["Small Business","For offices, shops and studios."]];
-export default function Services(){return <main><header className="header"><div className="container nav"><Link href="/" className="logo">MALTO<small>CLEANING SERVICES</small></Link><Link className="btn" href="/book">BOOK A CLEANING</Link></div></header><section className="section"><div className="container"><div className="eyebrow">SERVICES</div><h1>Cleaning, thoughtfully scoped.</h1><div className="grid4">{data.map(([a,b])=><div className="card" key={a}><h3>{a}</h3><p>{b}</p></div>)}</div></div></section></main>}
+import { getSiteData, REVALIDATE } from "@/lib/site";
+
+export const revalidate = REVALIDATE;
+
+export async function generateMetadata() {
+  const d = await getSiteData();
+  return { title: `${d.s("services_heading")} | MALTO Cleaning Services`, description: d.seo.description };
+}
+
+export default async function Services() {
+  const d = await getSiteData();
+  return <main>
+    <header className="header"><div className="container nav">
+      <Link href="/" className="logo">MALTO<small>CLEANING SERVICES</small></Link>
+      <Link className="btn" href="/book">{d.s("cta_primary")}</Link>
+    </div></header>
+    <section className="section"><div className="container">
+      <div className="eyebrow">SERVICES</div>
+      <h1>{d.s("services_heading")}</h1>
+      <div className="grid4">{d.services.map(x=><div className="card" key={x.name}><h3>{x.name}</h3><p>{x.description}</p></div>)}</div>
+    </div></section>
+  </main>;
+}
