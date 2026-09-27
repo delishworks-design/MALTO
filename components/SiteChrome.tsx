@@ -32,6 +32,9 @@ export const DEFAULT_LINKS = [
 export type NavLink = { href: string; label: string };
 
 export function SiteHeader({
+  // Defaults to the standard navigation. Without this the prop was undefined,
+  // the guard below fell through, and every public page shipped with a logo and
+  // a booking button but no way to reach any other section.
   links,
   ctaLabel = "BOOK A CLEANING",
   ctaHref = "/book",
@@ -47,6 +50,11 @@ export function SiteHeader({
   /** Hides the navigation and the call to action, for checkout-style pages. */
   minimal?: boolean;
 }) {
+  // A minimal header is a focused task page, so it keeps the back link and
+  // drops the section navigation. Everything else gets the standard links
+  // unless a caller passes its own.
+  const navLinks = minimal ? [] : (links ?? DEFAULT_LINKS);
+
   return (
     <header className="header">
       <div className="container nav">
@@ -54,9 +62,9 @@ export function SiteHeader({
           {LOGO}
         </Link>
 
-        {links && links.length > 0 && (
+        {navLinks.length > 0 && (
           <nav className="navlinks" aria-label="Main">
-            {links.map((l) => (
+            {navLinks.map((l) => (
               <Link key={l.href} href={l.href}>
                 {l.label}
               </Link>
@@ -64,7 +72,7 @@ export function SiteHeader({
           </nav>
         )}
 
-        {backHref && !links && <Link className="small" href={backHref}>{backLabel}</Link>}
+        {backHref && navLinks.length === 0 && <Link className="small" href={backHref}>{backLabel}</Link>}
 
         {!minimal && (
           <Link className="btn nav-cta" href={ctaHref}>
