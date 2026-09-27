@@ -65,7 +65,7 @@ async function sendOne(row: OutboxRow): Promise<string> {
       // Recipient is resolved from the SMTP settings, so to_email is empty.
       return (await sendAdminAlert(booking)).response;
     case "booking_received":
-      return (await sendBookingReceived(booking)).response;
+      return (await sendBookingReceived(booking, row.to_email)).response;
     case "quote":
       return (await sendQuoteEmail({
         to: row.to_email,

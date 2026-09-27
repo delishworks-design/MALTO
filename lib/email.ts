@@ -333,10 +333,14 @@ export async function sendQuoteEmail(input: QuoteEmailInput): Promise<SendResult
 }
 /** Sent to the customer the moment a booking lands, so they are not left
  *  guessing. Deliberately carries no price and no rates: the final quote is a
- *  separate email the admin sends after review. */
-export async function sendBookingReceived(booking: NewBooking): Promise<SendResult> {
+ *  separate email the admin sends after review.
+ *
+ *  toOverride is the address stored on the outbox row, which is what the
+ *  delivery log shows. Taking the payload copy as well would let the two
+ *  drift apart and report a recipient that was never mailed. */
+export async function sendBookingReceived(booking: NewBooking, toOverride?: string): Promise<SendResult> {
   const cfg = await loadEmailConfig();
-  const to = (booking.email ?? "").trim();
+  const to = (toOverride || booking.email || "").trim();
   if (!to) throw new Error("This booking has no email address, so no acknowledgement was sent.");
 
   const subject = `We received your booking${booking.booking_ref ? ` · ${booking.booking_ref}` : ""}`;
