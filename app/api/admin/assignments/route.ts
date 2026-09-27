@@ -1,5 +1,6 @@
 import { readJson, requireAdmin } from "@/lib/admin-auth";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { notifyMember } from "@/lib/push";
 
 export const runtime = "nodejs";
 
@@ -110,8 +111,40 @@ export async function POST(req: Request) {
     return Response.json({ error: insertErr.message }, { status: 500 });
   }
 
-  return Response.json({ ok: true, assigned: eligible.length, bookingRef: booking.booking_ref });
+  // Best effort and deliberately outside the transaction above: a push that
+  // fails must never undo the assignment, because the portal is the record and
+  // the push is only the nudge. Failures are logged and reported back.
+  let notified = 0;
+  let pushNote = "";
+  for (const m of eligible) {
+    try {
+      const res = await notifyMember(m.id, {
+        title: "New job assigned",
+        body: `${booking.booking_ref ?? "A job"} · ${booking.date ? fmtDate(booking.date) : "date TBC"}`,
+        url: "/portal",
+        tag: `malto-assignment-${bookingId}`,
+      });
+      notified += res.sent;
+      if (res.skipped !== "ok" && !pushNote) pushNote = res.skipped;
+    } catch (err: any) {
+      console.error("[assignments] push failed:", err?.message ?? err);
+    }
+  }
+
+  return Response.json({
+    ok: true,
+    assigned: eligible.length,
+    notified,
+    pushNote: pushNote || undefined,
+    bookingRef: booking.booking_ref,
+  });
 }
+
+const fmtDate = (d: string) => {
+  const parsed = new Date(`${d.slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return d;
+  return parsed.toLocaleDateString("en-PH", { weekday: "short", month: "short", day: "numeric" });
+};
 
 export async function DELETE(req: Request) {
   const guard = await requireAdmin();

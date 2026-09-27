@@ -49,6 +49,16 @@ const NEXT:Record<string,{to:string;label:string}[]>={
   done:[], declined:[], cancelled:[],
 };
 
+/** VAPID keys are handed to the browser base64url encoded. */
+function urlBase64ToUint8Array(base64String:string){
+  const padding="=".repeat((4-(base64String.length%4))%4);
+  const base64=(base64String+padding).replace(/-/g,"+").replace(/_/g,"/");
+  const raw=atob(base64);
+  const output=new Uint8Array(raw.length);
+  for(let i=0;i<raw.length;i++) output[i]=raw.charCodeAt(i);
+  return output;
+}
+
 const STATUS_LABEL:Record<string,string>={
   pending:"Waiting for you", accepted:"Accepted", declined:"Declined",
   on_the_way:"On the way", done:"Done", cancelled:"Cancelled",
@@ -65,6 +75,8 @@ export default function PortalHome(){
   const [open,setOpen]=useState<string|null>(null);
   const [photos,setPhotos]=useState<Record<string,string>>({});
   const [noteDraft,setNoteDraft]=useState<Record<string,string>>({});
+  const [pushState,setPushState]=useState<"unknown"|"unsupported"|"denied"|"on"|"off">("unknown");
+  const [pushBusy,setPushBusy]=useState(false);
 
   const flash=(m:string)=>{ setNotice(m); setTimeout(()=>setNotice(null),3200); };
 
@@ -142,6 +154,78 @@ export default function PortalHome(){
     }catch{ /* a missing photo is not worth an error banner */ }
   };
 
+  // --- Push notifications -----------------------------------------------------
+  // Web Push rather than SMS: free, instant, and the only way a part-time
+  // member finds out there is work. Best effort by design, so every failure
+  // here leaves the portal fully usable.
+  const detectPush=useCallback(async()=>{
+    if(typeof window==="undefined"||!("serviceWorker" in navigator)||!("PushManager" in window)){
+      setPushState("unsupported"); return;
+    }
+    try{
+      const reg=await navigator.serviceWorker.getRegistration("/portal/");
+      if(!reg||!reg.pushManager){
+        setPushState("off"); return;
+      }
+      const sub=await reg.pushManager.getSubscription();
+      setPushState(sub?"on":"off");
+    }catch{ setPushState("off"); }
+  },[]);
+
+  useEffect(()=>{ if(me&&me.portal_status==="approved") detectPush(); },[me,detectPush]);
+
+  const enablePush=async()=>{
+    if(pushBusy) return;
+    setPushBusy(true); setError(null);
+    try{
+      if(!("Notification" in window)) throw new Error("This browser cannot show notifications.");
+      const perm=await Notification.requestPermission();
+      if(perm!=="granted"){ setPushState("denied"); throw new Error("Notifications were blocked. Allow them in your browser settings to get job alerts."); }
+
+      const keyRes=await fetch("/api/portal/push");
+      const keyJson=await keyRes.json().catch(()=>({} as any));
+      if(!keyRes.ok||!keyJson.publicKey) throw new Error(keyJson.error||"Push is not available right now.");
+
+      const reg=await navigator.serviceWorker.register("/portal/sw.js",{scope:"/portal/"});
+      await navigator.serviceWorker.ready;
+
+      const existing=await reg.pushManager.getSubscription();
+      const sub=existing??await reg.pushManager.subscribe({
+        userVisibleOnly:true,
+        applicationServerKey:urlBase64ToUint8Array(keyJson.publicKey),
+      });
+      if(!sub) throw new Error("Could not subscribe this device.");
+
+      const res=await fetch("/api/portal/push",{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({...sub.toJSON(),user_agent:navigator.userAgent})
+      });
+      if(!res.ok){ const j=await res.json().catch(()=>({} as any)); throw new Error(j.error||"Could not save your subscription."); }
+      setPushState("on");
+      flash("Notifications are on. You will be alerted when a job is assigned.");
+    }catch(err:any){
+      setError(err?.message||"Could not turn on notifications.");
+    }finally{ setPushBusy(false); }
+  };
+
+  const disablePush=async()=>{
+    if(pushBusy) return;
+    setPushBusy(true);
+    try{
+      const reg=await navigator.serviceWorker.getRegistration("/portal/");
+      const sub=await reg?.pushManager.getSubscription();
+      if(sub){
+        await fetch("/api/portal/push",{
+          method:"DELETE",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({endpoint:sub.endpoint})
+        });
+        await sub.unsubscribe();
+      }
+      setPushState("off");
+    }catch{ setPushState("off"); }
+    finally{ setPushBusy(false); }
+  };
+
   const signOut=async()=>{
     try{ await createClient().auth.signOut(); }catch{ /* ignore */ }
     router.replace("/portal/login");
@@ -201,6 +285,50 @@ export default function PortalHome(){
 
       <div className="eyebrow">TEAM PORTAL</div>
       <h2>Your jobs.</h2>
+
+      {/* Notifications first: a member who does not know a job exists will
+          never accept it, so this is what makes the rest of the page work. */}
+      <div className="panel" style={{marginTop:22,borderLeft:"4px solid var(--sage)"}}>
+        <div className="panel-head"><strong>Job alerts</strong>
+          <span className={"badge"+(pushState==="on"?" on":"")}>
+            {pushState==="on"?"On":pushState==="denied"?"Blocked":pushState==="unsupported"?"Not supported":"Off"}
+          </span>
+        </div>
+        {pushState==="unsupported"&&(
+          <p className="small muted" style={{margin:0}}>
+            This browser cannot show notifications. You can still check this page for your jobs.
+          </p>
+        )}
+        {pushState==="denied"&&(
+          <p className="small" style={{margin:0,color:"#8A6420"}}>
+            Notifications are blocked in your browser settings. Turn them back on for this site to get job alerts.
+          </p>
+        )}
+        {pushState==="unknown"&&<p className="small muted" style={{margin:0}}>Checking your device…</p>}
+        {pushState==="off"&&(
+          <>
+            <p className="small muted" style={{margin:"0 0 14px"}}>
+              Get an alert the moment MALTO assigns you a job, instead of having to check this page.
+            </p>
+            <button className="btn" disabled={pushBusy} style={{minHeight:42,opacity:pushBusy?.6:1}} onClick={enablePush}>
+              {pushBusy?"TURNING ON…":"TURN ON JOB ALERTS"}
+            </button>
+            <p className="small muted" style={{margin:"12px 0 0"}}>
+              On an iPhone, add this page to your Home Screen first — Apple only allows alerts for apps you have installed.
+            </p>
+          </>
+        )}
+        {pushState==="on"&&(
+          <>
+            <p className="small muted" style={{margin:"0 0 14px"}}>
+              You will be alerted on this device when a job is assigned. This page stays available if you miss one.
+            </p>
+            <button className="btn secondary" disabled={pushBusy} style={{minHeight:42,opacity:pushBusy?.6:1}} onClick={disablePush}>
+              {pushBusy?"TURNING OFF…":"TURN OFF ALERTS"}
+            </button>
+          </>
+        )}
+      </div>
 
       {/* Availability: the single most useful thing for a part-time crew, and
           it is what stops the admin assigning you while you are unavailable. */}

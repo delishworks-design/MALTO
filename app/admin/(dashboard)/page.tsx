@@ -265,7 +265,8 @@ export default function Bookings(){
       });
       const j=await res.json().catch(()=>({} as any));
       if(!res.ok||!j.ok) throw new Error(j.error||"Could not assign.");
-      setNotice(`${j.assigned} member${j.assigned===1?"":"s"} assigned to ${j.bookingRef}.`);
+      const noAlerts=j.notified===0&&j.pushNote?` (no alert sent: ${j.pushNote})`:"";
+      setNotice(`${j.assigned} member${j.assigned===1?"":"s"} assigned to ${j.bookingRef}.${noAlerts}`);
       setTimeout(()=>setNotice(null),4000);
       setPickerFor(null);
       await loadAssignments(pickerFor);
