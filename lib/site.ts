@@ -6,6 +6,22 @@ export const REVALIDATE = 60;
 export type FaqItem = { q: string; a: string };
 export type ServiceRow = { name: string; description: string };
 export type PriceCard = { label: string; amount: number; suffix: string };
+export type Frequency = "once" | "weekly" | "biweekly" | "monthly";
+export type RecurringPlan = {
+  frequency: Frequency;
+  label: string;
+  clientLabel: string;
+  discountPct: number;
+};
+
+/** Matches the rows seeded in 009, so the booking form still offers the right
+ *  options if the table is unreachable. */
+const DEFAULT_PLANS: RecurringPlan[] = [
+  { frequency: "once", label: "One-time", clientLabel: "", discountPct: 0 },
+  { frequency: "weekly", label: "Weekly", clientLabel: "Every week", discountPct: 10 },
+  { frequency: "biweekly", label: "Twice a week", clientLabel: "Twice a week", discountPct: 15 },
+  { frequency: "monthly", label: "Monthly", clientLabel: "Once a month", discountPct: 5 },
+];
 
 /**
  * Fallbacks = the exact copy that was hardcoded before the site went
@@ -79,29 +95,40 @@ export type SiteData = {
   services: ServiceRow[];
   cards: PriceCard[];
   faq: FaqItem[];
+  plans: RecurringPlan[];
   seo: { title: string; description: string };
 };
 
 export const formatPrice = (amount: number, suffix = "") =>
   `₱${Number(amount).toLocaleString("en-PH")}${suffix}`;
 
-function build(overrides: Record<string, string>, services: ServiceRow[], cards: PriceCard[], faq: FaqItem[]): SiteData {
+function build(
+  overrides: Record<string, string>,
+  services: ServiceRow[],
+  cards: PriceCard[],
+  faq: FaqItem[],
+  plans: RecurringPlan[] = DEFAULT_PLANS
+): SiteData {
   const map: Record<string, string> = { ...DEFAULTS, ...overrides };
   return {
     s: (key: string) => map[key] ?? "",
     services,
     cards,
     faq,
+    plans,
     seo: { title: map.seo_title, description: map.seo_description },
   };
 }
 
 export async function getSiteData(): Promise<SiteData> {
   try {
-    const [settingsRes, servicesRes, cardsRes] = await Promise.all([
+    const [settingsRes, servicesRes, cardsRes, plansRes] = await Promise.all([
       supabase.from("site_settings").select("key,value"),
       supabase.from("services").select("name,description,active,sort_order").order("sort_order"),
       supabase.from("price_cards").select("label,amount,suffix,active,sort_order").order("sort_order"),
+      supabase.from("recurring_discounts")
+        .select("frequency,label,client_label,discount_pct,sort_order")
+        .order("sort_order"),
     ]);
 
     const overrides: Record<string, string> = {};
@@ -131,7 +158,24 @@ export async function getSiteData(): Promise<SiteData> {
       }
     }
 
-    return build(overrides, services.length ? services : DEFAULT_SERVICES, cards.length ? cards : DEFAULT_CARDS, faq);
+    // Only a total gap falls back: the database is the source of truth for the
+    // percentages, so an empty result should not silently reinstate the seeds.
+    const plans: RecurringPlan[] = (plansRes.data ?? [])
+      .filter((r) => r && r.frequency)
+      .map((r) => ({
+        frequency: r.frequency as Frequency,
+        label: String(r.label ?? ""),
+        clientLabel: String(r.client_label ?? ""),
+        discountPct: Number(r.discount_pct) || 0,
+      }));
+
+    return build(
+      overrides,
+      services.length ? services : DEFAULT_SERVICES,
+      cards.length ? cards : DEFAULT_CARDS,
+      faq,
+      plans.length ? plans : DEFAULT_PLANS
+    );
   } catch {
     return build({}, DEFAULT_SERVICES, DEFAULT_CARDS, DEFAULT_FAQ);
   }

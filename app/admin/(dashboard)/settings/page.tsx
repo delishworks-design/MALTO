@@ -60,6 +60,41 @@ export default function SettingsAdmin(){
   const [hasPass,setHasPass]=useState(false);
   const [newPass,setNewPass]=useState("");
 
+  // Recurring discounts drive both the client estimate and the admin's
+  // suggested price, so they are editable here rather than in code.
+  const [recurring,setRecurring]=useState<{frequency:string;label:string;client_label:string;discount_pct:string;sort_order:number}[]>([]);
+  const [savingRec,setSavingRec]=useState(false);
+
+  const loadRecurring=useCallback(async()=>{
+    try{
+      const supabase=createClient();
+      const {data,error:err}=await supabase
+        .from("recurring_discounts").select("*").order("sort_order");
+      if(err) throw err;
+      setRecurring((data as any[]||[]).map(r=>({...r,discount_pct:String(r.discount_pct)})));
+    }catch{ setRecurring([]); }
+  },[]);
+
+  useEffect(()=>{ loadRecurring(); },[loadRecurring]);
+
+  const saveRecurring=async()=>{
+    if(savingRec) return;
+    setSavingRec(true); setError(null);
+    try{
+      const supabase=createClient();
+      for(const r of recurring){
+        const pct=Number(r.discount_pct);
+        if(!Number.isFinite(pct)||pct<0||pct>100)
+          throw new Error(`${r.label}: the discount must be between 0 and 100.`);
+        const {error:err}=await supabase.from("recurring_discounts")
+          .update({discount_pct:pct}).eq("frequency",r.frequency);
+        if(err) throw err;
+      }
+      flash("Recurring discounts saved.");
+    }catch(e:any){ setError(e?.message||"Could not save the discounts."); }
+    finally{ setSavingRec(false); }
+  };
+
   // Outbox history so a delivered message can be told apart from one that
   // never arrived. Failures alone were not enough to debug a missing email.
   const [mailLog,setMailLog]=useState<{id:string;kind:string;to_email:string;status:string;attempts:number;last_error:string|null;provider_response:string|null;created_at:string;sent_at:string|null}[]>([]);
@@ -342,6 +377,36 @@ export default function SettingsAdmin(){
             </>}
         </>;
       })()}
+    </div>
+
+    {/* -------- RECURRING PLANS -------- */}
+    <div className="panel">
+      <div className="panel-head"><strong>Recurring plans</strong><span className="small muted">Nakalagay ang discount na nakikita ng client sa booking form at ang suggested price</span></div>
+      {recurring.length===0
+        ? <p className="small muted" style={{margin:0}}>Wala pang recurring plan.</p>
+        : <>
+          <div className="table" style={{marginTop:0}}>
+            <table>
+              <thead><tr><th>Plan</th><th>Label sa website</th><th>Discount (%)</th></tr></thead>
+              <tbody>{recurring.map(r=>(
+                <tr key={r.frequency}>
+                  <td className="small">{r.label}</td>
+                  <td className="small">{r.client_label||"—"}</td>
+                  <td><input inputMode="decimal" value={r.discount_pct} style={{width:90}}
+                    onChange={e=>setRecurring(list=>list.map(x=>x.frequency===r.frequency?{...x,discount_pct:e.target.value}:x))}/></td>
+                </tr>))}
+              </tbody>
+            </table>
+          </div>
+          <p className="small muted" style={{margin:"12px 0 0"}}>
+            Ang “One-time” ay dapat 0. Ang existing bookings ay may sariling naka-save na %, kaya hindi napipigilan ang mga
+            nakatapos nang kasunduan kapag palitan ang discount.
+          </p>
+          <button className="btn" style={{marginTop:14,minHeight:42}} disabled={savingRec}
+            onClick={saveRecurring}>
+            {savingRec?"SAVING…":"SAVE RECURRING DISCOUNTS"}
+          </button>
+        </>}
     </div>
 
     {/* -------- WEBSITE CONFIGURATION -------- */}

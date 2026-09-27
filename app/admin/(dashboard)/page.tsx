@@ -220,6 +220,35 @@ export default function Bookings(){
   // an explicit SEND AGAIN instead of the admin hammering the button.
   const [quoteBlock,setQuoteBlock]=useState<{id:string;message:string;canOverride:boolean}[]>([]);
 
+  // --- Recurring plans ------------------------------------------------------
+  const [planFor,setPlanFor]=useState<Record<string,any>>({});
+
+  const loadPlan=useCallback(async(bookingId:string)=>{
+    try{
+      const res=await fetch(`/api/admin/recurring?booking_id=${bookingId}`);
+      const j=await res.json().catch(()=>({} as any));
+      if(!res.ok) return;
+      setPlanFor(p=>({...p,[bookingId]:j.plan??null}));
+    }catch{ /* plan panel simply stays hidden */ }
+  },[]);
+
+  const setPlanStatus=async(bookingId:string,status:string)=>{
+    if(busy) return;
+    setBusy(bookingId); setError(null);
+    try{
+      const res=await fetch("/api/admin/recurring",{
+        method:"PATCH",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({booking_id:bookingId,status})
+      });
+      const j=await res.json().catch(()=>({} as any));
+      if(!res.ok||!j.ok) throw new Error(j.error||"Could not update the schedule.");
+      setNotice(j.message||"Schedule updated.");
+      setTimeout(()=>setNotice(null),3000);
+      await loadPlan(bookingId);
+    }catch(err:any){ setError(friendlyError(err)); }
+    finally{ setBusy(null); }
+  };
+
   // --- Assignments ---------------------------------------------------------
   const [assignments,setAssignments]=useState<Record<string,AssignmentRow[]>>({});
   const [pickerFor,setPickerFor]=useState<string|null>(null);
@@ -346,7 +375,7 @@ export default function Bookings(){
     if(next&&b.photo_path) loadPhoto(b);
     // Fetch this booking's crew as it is opened, otherwise the row reports
     // "Nobody assigned yet" for a job that already has a team on it.
-    if(next) loadAssignments(b.id);
+    if(next){ loadAssignments(b.id); if(b.frequency&&b.frequency!=="once") loadPlan(b.id); }
   };
 
   const clearFilters=()=>{ setSearch(""); setStatusFilter("All"); setQuick(null); };
@@ -359,6 +388,7 @@ export default function Bookings(){
     ["Address",b.adress],["City / Municipality",b.city],["Province",b.province],
     ["Landmark",b.landmark],["Access instructions",b.access],
     ["Preferred date",fmtDate(b.date)],["Preferred time",b.time],
+    ["Frequency",(b.frequency&&b.frequency!=="once")?`${b.frequency} (−${b.discount_pct||0}%)`:"One-time"],
     ["Customer notes",b.notes],
     ["Created at",b.created_at?new Date(b.created_at).toLocaleString("en-PH"):""]
   ];
@@ -520,6 +550,35 @@ export default function Bookings(){
             {expanded===b.id&&<tr>
               <td colSpan={7}>
                   <div className="estimate">
+                    {b.frequency&&b.frequency!=="once"&&(()=>{
+                      const plan=planFor[b.id];
+                      return <div className="field" style={{marginBottom:22}}>
+                        <label>Recurring schedule</label>
+                        {!plan
+                          ? <p className="small muted" style={{margin:"0 0 10px"}}>Loading the schedule…</p>
+                          : <>
+                            <p className="small muted" style={{margin:"0 0 10px"}}>
+                              {plan.frequency} at −{plan.discount_pct}% · next visit {fmtDate(plan.nextVisit||plan.next_date)}
+                              {plan.occurrences?.length
+                                ? ` · ${plan.occurrences.length} visit${plan.occurrences.length===1?"":"s"} already booked`
+                                : ""}
+                            </p>
+                            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                              {plan.status!=="active"&&<button className="btn" style={{minHeight:40}}
+                                disabled={busy===b.id} onClick={()=>setPlanStatus(b.id,"active")}>RESUME</button>}
+                              {plan.status==="active"&&<button className="btn secondary" style={{minHeight:40}}
+                                disabled={busy===b.id} onClick={()=>setPlanStatus(b.id,"paused")}>PAUSE SCHEDULE</button>}
+                              {plan.status!=="cancelled"&&<button className="btn secondary" style={{minHeight:40}}
+                                disabled={busy===b.id} onClick={()=>setPlanStatus(b.id,"cancelled")}>END SCHEDULE</button>}
+                              {plan.status!=="active"&&<span className="badge">{plan.status}</span>}
+                            </div>
+                            <p className="small muted" style={{margin:"10px 0 0"}}>
+                              New visits appear here automatically, 14 days ahead. Cancelling one visit does not stop the rest.
+                            </p>
+                          </>}
+                      </div>;
+                    })()}
+
                     {/* Who is on this job, and the controls to put someone on it. */}
                     <div className="field" style={{marginBottom:22}}>
                       <label>Assigned team</label>

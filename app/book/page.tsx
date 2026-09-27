@@ -21,6 +21,22 @@ function makeBookingRef(at=new Date()){
   return `MAL-${m.getUTCFullYear()}${pad(m.getUTCMonth()+1)}${pad(m.getUTCDate())}-${pad(m.getUTCHours())}${pad(m.getUTCMinutes())}`;
 }
 
+type Frequency="once"|"weekly"|"biweekly"|"monthly";
+type Plan={frequency:Frequency;label:string;clientLabel:string;discountPct:number};
+
+/** The starting price is a display string like "₱1,300+", so the discount has
+ *  to be applied to the number inside it. Anything unparseable is shown as-is
+ *  rather than replaced with a wrong figure. */
+function discountPriceText(text:string,pct:number){
+  if(!pct) return text;
+  const match=String(text).match(/[0-9][0-9,]*/);
+  if(!match) return text;
+  const base=Number(match[0].replace(/,/g,""));
+  if(!Number.isFinite(base)||base<=0) return text;
+  const discounted=Math.ceil((base*(1-pct/100))/50)*50;
+  return `₱${discounted.toLocaleString("en-PH")}+`;
+}
+
 function randomSuffix(){
   const chars="ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   return Array.from({length:4},()=>chars[Math.floor(Math.random()*chars.length)]).join("");
@@ -50,27 +66,55 @@ export default function Book() {
  const [serviceOptions,setServiceOptions]=useState<string[]>(DEFAULT_SERVICE_OPTIONS);
  const [startingPrice,setStartingPrice]=useState("₱1,300+");
  const [deepPrice,setDeepPrice]=useState("₱3,500+");
+ const [plans,setPlans]=useState<Plan[]>([
+   {frequency:"once",label:"One-time",clientLabel:"",discountPct:0},
+   {frequency:"weekly",label:"Weekly",clientLabel:"Every week",discountPct:10},
+   {frequency:"biweekly",label:"Twice a week",clientLabel:"Twice a week",discountPct:15},
+   {frequency:"monthly",label:"Monthly",clientLabel:"Once a month",discountPct:5},
+ ]);
+ const recurringOnly=plans.filter(p=>p.frequency!=="once");
  useEffect(()=>{
    let alive=true;
    (async()=>{
      try{
-       const [svc,cards,settings]=await Promise.all([
+       const [svc,cards,settings,disc]=await Promise.all([
          supabase.from("services").select("name,active,sort_order").order("sort_order"),
          supabase.from("price_cards").select("label,amount,suffix").eq("label","Deep Cleaning").maybeSingle(),
-         supabase.from("site_settings").select("key,value").eq("key","pricing_starting_from").maybeSingle()
+         supabase.from("site_settings").select("key,value").eq("key","pricing_starting_from").maybeSingle(),
+         supabase.from("recurring_discounts").select("frequency,label,client_label,discount_pct,sort_order").order("sort_order")
        ]);
        if(!alive) return;
        const names=(svc.data||[]).filter(r=>r.active!==false&&r.name).map(r=>r.name);
        if(names.length) setServiceOptions(names);
        if(cards.data) setDeepPrice(`₱${Number(cards.data.amount||0).toLocaleString("en-PH")}${cards.data.suffix||""}`);
        if(settings.data?.value) setStartingPrice(String(settings.data.value));
+       const rows=(disc.data||[]).filter((r:any)=>r&&r.frequency).map((r:any)=>({
+         frequency:r.frequency as Frequency,
+         label:String(r.label??""),
+         clientLabel:String(r.client_label??""),
+         discountPct:Number(r.discount_pct)||0
+       }));
+       // Only a total gap falls back to the hardcoded seeds, so editing a
+       // percentage in Settings takes effect on the live site immediately.
+       if(rows.length) setPlans(rows);
      }catch{ /* keep hardcoded defaults */ }
    })();
    return ()=>{alive=false;};
  },[]);
  const set=(k:string,v:any)=>setData(d=>({...d,[k]:v}));
  const toggleArea=(a:string)=>set("areas",(data.areas||[]).includes(a)?data.areas.filter((x:string)=>x!==a):[...(data.areas||[]),a]);
- const estimate=useMemo(()=>({cleaners:data.property==="House"||data.property==="Office"?2:1,hours:data.service==="Deep Cleaning"?6:5,price:data.service==="Deep Cleaning"?deepPrice:startingPrice}),[data,deepPrice,startingPrice]);
+ const chosenPlan=plans.find(p=>p.frequency===(data.frequency||"once"))||plans[0];
+ const discountPct=chosenPlan?chosenPlan.discountPct:0;
+ const estimate=useMemo(()=>{
+   const base=data.service==="Deep Cleaning"?deepPrice:startingPrice;
+   return {
+     cleaners:data.property==="House"||data.property==="Office"?2:1,
+     hours:data.service==="Deep Cleaning"?6:5,
+     price:discountPriceText(base,discountPct),
+     basePrice:base,
+     discountPct,
+   };
+ },[data,deepPrice,startingPrice,discountPct]);
 
  const onPhoto=(file:File|null)=>{
    if(!file){set("photo",null);setError(null);return;}
@@ -142,7 +186,8 @@ export default function Book() {
          phone:data.mobile||"",
          email:data.email||"",
          notes:data.notes||"",
-         status:"New Request"
+         status:"New Request",
+         frequency:chosenPlan?chosenPlan.frequency:"once"
        };
        if(data.bedrooms) payload.bedrooms=Number.parseInt(data.bedrooms,10);
        if(data.bathrooms) payload.bathrooms=Number.parseInt(data.bathrooms,10);
@@ -172,14 +217,39 @@ export default function Book() {
  const next=()=>setStep(s=>Math.min(7,s+1)); const back=()=>setStep(s=>Math.max(0,s-1));
  return <main><header className="header"><div className="container nav"><Link href="/" className="logo">MALTO<small>CLEANING SERVICES</small></Link><Link className="small" href="/">Back to website</Link></div></header>
  <div className="booking-wrap"><div className="booking-shell"><div className="progress">{steps.map((_,i)=><span className={i<=step?"active":""} key={i}/>)}</div><div className="eyebrow">STEP {step+1} OF 8</div><h2>{steps[step]}</h2>
- {step===0&&<div className="choice-grid">{serviceOptions.map(x=><label className="choice" key={x}><input type="radio" checked={data.service===x} onChange={()=>set("service",x)}/>{x}</label>)}</div>}
+ {step===0&&<>
+   <div className="choice-grid">{serviceOptions.map(x=><label className="choice" key={x}><input type="radio" checked={data.service===x} onChange={()=>set("service",x)}/>{x}</label>)}</div>
+   {recurringOnly.length>0&&<>
+     <div className="eyebrow" style={{margin:"30px 0 4px"}}>HOW OFTEN</div>
+     <p className="small muted" style={{margin:"0 0 12px"}}>Booking on a schedule means the same visit repeats automatically, and the price drops.</p>
+     <div className="choice-grid">
+       <label className="choice"><input type="radio" name="frequency" checked={!data.frequency||data.frequency==="once"} onChange={()=>set("frequency","once")}/>One-time</label>
+       {recurringOnly.map(p=><label className="choice" key={p.frequency}>
+         <input type="radio" name="frequency" checked={data.frequency===p.frequency} onChange={()=>set("frequency",p.frequency)}/>
+         {p.clientLabel||p.label}
+         {p.discountPct>0&&<span className="small" style={{display:"block",color:"#3F6B4F",marginTop:6}}>Save {p.discountPct}%</span>}
+       </label>)}
+     </div>
+     {discountPct>0&&<div className="estimate" style={{marginTop:18}}>
+       <p style={{margin:"0 0 6px"}}>Estimated per visit: <strong>{estimate.price}</strong></p>
+       <p className="small muted" style={{margin:0}}>Was {estimate.basePrice}. Final price is confirmed after MALTO reviews the request.</p>
+     </div>}
+   </>}
+ </>}
  {step===1&&<div className="form-grid"><div className="field"><label>Property Type</label><select value={data.property} onChange={e=>set("property",e.target.value)}><option value="">Select</option>{propertyOptions.map(x=><option key={x}>{x}</option>)}</select></div><div className="field"><label>Approximate sqm</label><input value={data.sqm||""} onChange={e=>set("sqm",e.target.value)}/></div><div className="field"><label>Bedrooms</label><input type="number" value={data.bedrooms||""} onChange={e=>set("bedrooms",e.target.value)}/></div><div className="field"><label>Bathrooms</label><input type="number" value={data.bathrooms||""} onChange={e=>set("bathrooms",e.target.value)}/></div></div>}
  {step===2&&<><div className="choice-grid">{areas.map(a=><label className="choice" key={a}><input type="checkbox" checked={(data.areas||[]).includes(a)} onChange={()=>toggleArea(a)}/>{a}</label>)}</div><div className="field" style={{marginTop:18}}><label>Condition</label><select value={data.condition} onChange={e=>set("condition",e.target.value)}>{["Light","Normal","Needs attention","Heavy buildup"].map(x=><option key={x}>{x}</option>)}</select></div><div className="field" style={{marginTop:18}}><label>Notes</label><textarea value={data.scopeNotes||""} onChange={e=>set("scopeNotes",e.target.value)}/></div></>}
  {step===3&&<div className="choice-grid">{["Customer provides materials","MALTO provides materials"].map(x=><label className="choice" key={x}><input type="radio" checked={data.materials===x} onChange={()=>set("materials",x)}/>{x}</label>)}</div>}
  {step===4&&<div className="form-grid"><div className="field full"><label>Address</label><input value={data.address||""} onChange={e=>set("address",e.target.value)}/></div><div className="field"><label>City / Municipality</label><input value={data.city||""} onChange={e=>set("city",e.target.value)}/></div><div className="field"><label>Province</label><input value={data.province||""} onChange={e=>set("province",e.target.value)}/></div><div className="field"><label>Landmark</label><input value={data.landmark||""} onChange={e=>set("landmark",e.target.value)}/></div><div className="field"><label>Access instructions</label><input value={data.access||""} onChange={e=>set("access",e.target.value)}/></div></div>}
  {step===5&&<div className="form-grid"><div className="field"><label>Preferred Date</label><input type="date" value={data.date||""} onChange={e=>set("date",e.target.value)}/></div><div className="field"><label>Preferred Time</label><select value={data.time} onChange={e=>set("time",e.target.value)}><option>Morning</option><option>Afternoon</option><option>Evening</option></select></div><div className="field full"><div className="notice">Subject to availability.</div></div></div>}
  {step===6&&<div className="form-grid"><div className="field"><label>Full Name</label><input value={data.name||""} onChange={e=>set("name",e.target.value)}/></div><div className="field"><label>Mobile Number</label><input value={data.mobile||""} onChange={e=>set("mobile",e.target.value)}/></div><div className="field full"><label>Email</label><input type="email" value={data.email||""} onChange={e=>set("email",e.target.value)}/></div><div className="field full"><label>Notes</label><textarea value={data.notes||""} onChange={e=>set("notes",e.target.value)}/></div><div className="field full"><label>Optional Photo Upload</label><input type="file" accept="image/*" onChange={e=>onPhoto(e.target.files?.[0]||null)}/><span className="small">{data.photo?`${data.photo.name} — ${(data.photo.size/1024/1024).toFixed(1)}MB (max 5MB)`:"JPG, PNG, WEBP, GIF or HEIC"}</span></div></div>}
- {step===7&&<><div className="notice">Final price is confirmed after MALTO reviews the request.</div><div className="estimate"><p><strong>Service:</strong> {data.service||"—"}</p><p><strong>Estimated cleaners:</strong> {estimate.cleaners}</p><p><strong>Estimated hours:</strong> {estimate.hours}</p><p><strong>Estimated price range:</strong> {estimate.price}</p></div></>}
+ {step===7&&<><div className="notice">Final price is confirmed after MALTO reviews the request.</div><div className="estimate">
+   <p><strong>Service:</strong> {data.service||"—"}</p>
+   <p><strong>Frequency:</strong> {chosenPlan?chosenPlan.label:"One-time"}{discountPct>0&&` (${discountPct}% recurring discount applied)`}</p>
+   {data.frequency&&data.frequency!=="once"&&data.date&&<p className="small muted" style={{margin:0}}>Your first visit is {data.date}. The same booking repeats automatically every {chosenPlan?.label.toLowerCase().replace(/^twice a /,"")??"week"} after that, and you will get an email before each one.</p>}
+   <p><strong>Estimated cleaners:</strong> {estimate.cleaners}</p>
+   <p><strong>Estimated hours:</strong> {estimate.hours}</p>
+   <p><strong>Estimated price range:</strong> {estimate.price}{discountPct>0&&<span className="small muted"> (was {estimate.basePrice})</span>}</p>
+ </div></>}
  {error&&<div className="notice" style={{background:"#FBE9E7",color:"#8A2C1D"}}>{error}</div>}
  <div className="booking-actions">{step>0?<button className="btn secondary" onClick={back} disabled={submitting} style={{opacity:submitting?.6:1}}>BACK</button>:<span/>}{step<7?<button className="btn" onClick={next}>CONTINUE</button>:<button className="btn" onClick={submitBooking} disabled={submitting} style={{opacity:submitting?.6:1,pointerEvents:submitting?"none":"auto"}}>{submitting?"SUBMITTING…":"REQUEST BOOKING"}</button>}</div>
  </div></div></main>
