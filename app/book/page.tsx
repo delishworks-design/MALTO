@@ -70,6 +70,10 @@ function friendlyError(error: any) {
   const code = error?.code;
   const msg = String(error?.message || "");
   if (code === "23505") return null;
+  if (code === "23P01" || /bookings_no_partner_overlap|exclusion/i.test(msg))
+    return "Someone just took that time. Please go back and choose another start time, or pick no preference and we will arrange one.";
+  if (code === "23514" || /violates check constraint/i.test(msg))
+    return "That request could not be saved because it is missing something we need. Please check your answers and try again.";
   if (code === "42501" || /permission denied/i.test(msg))
     return "Bookings are not accepting submissions yet — the database permissions (RLS) still need to be configured.";
   if (code === "42P01" || /does not exist/i.test(msg))
@@ -273,7 +277,8 @@ export default function Book() {
     let alive = true;
     (async () => {
       const { data: rows, error: rpcErr } = await supabase.rpc("partner_slots", {
-        p_partner_id: pid, p_on_date: date, p_window: win, p_minutes: 30,
+        p_partner_id: pid, p_on_date: date, p_window: win,
+        p_minutes: 30, p_duration_minutes: estimate.hours * 60,
       });
       if (!alive) return;
       setSlotsFailed(!!rpcErr);
@@ -282,7 +287,7 @@ export default function Book() {
       setSlotsBusy(false);
     })();
     return () => { alive = false; };
-  }, [data.partner_id, data.date, data.time, slotsFor]);
+  }, [data.partner_id, data.date, data.time, slotsFor, estimate.hours]);
 
   // A slot belongs to a specific day and window, so changing any of them
   // clears it rather than quietly booking the previous time. Keyed on the
@@ -405,7 +410,15 @@ export default function Book() {
           // admin queue to do it.
           partner_id: data.partner_id || null,
         };
-        if (data.starts_at) payload.starts_at = data.starts_at;
+        if (data.starts_at) {
+          payload.starts_at = data.starts_at;
+          // The database requires an end whenever a start is given, and the
+          // overlap constraint compares the pair, so both come from the same
+          // estimate the slot list was built with.
+          payload.ends_at = new Date(
+            new Date(data.starts_at).getTime() + estimate.hours * 60 * 60 * 1000
+          ).toISOString();
+        }
         if (data.bedrooms) payload.bedrooms = Number.parseInt(data.bedrooms, 10);
         if (data.bathrooms) payload.bathrooms = Number.parseInt(data.bathrooms, 10);
         if (data.date) payload.date = data.date;

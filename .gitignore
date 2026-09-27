@@ -17,3 +17,4 @@ yarn-error.log*
 *.tsbuildinfo
 .vercel
 supabase/.temp/
+.env*
