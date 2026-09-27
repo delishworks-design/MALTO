@@ -279,3 +279,53 @@ textarea { min-height: 110px; resize: vertical; }
   .profile-top { flex-direction: column; align-items: flex-start; }
   .hours tbody th { width: auto; }
 }
+
+/* ------------------------------------------------------------------ *
+ * Booking form
+ * ------------------------------------------------------------------ */
+
+/* The iPad fix. Two columns at a fixed fraction is what made the date and
+   time controls sit on top of each other around 768px, where a percentage
+   track is still narrower than the widest control inside it. minmax(300px,1fr)
+   is measured in the control's own units and will not collapse below it. */
+.booking-shell .form-grid { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.booking-shell .field.full { grid-column: 1 / -1; }
+
+/* Cleaner picker */
+.chooserow-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--s3); }
+.choosecard {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--s3);
+  width: 100%; text-align: left; padding: var(--s4);
+  background: var(--white); border: 1px solid var(--border-firm);
+  border-radius: var(--radius); cursor: pointer; margin-bottom: var(--s3);
+}
+.choosecard:hover { border-color: var(--sage); }
+.choosecard.on { border-color: var(--sage); background: var(--softsage); }
+.chooserow-grid .choosecard { margin-bottom: 0; }
+.choosecard-main { display: flex; gap: var(--s3); align-items: center; min-width: 0; }
+.choosecard-main > div { min-width: 0; }
+.choosecard strong { display: inline-block; }
+.tick { color: var(--sage); font-size: 20px; font-weight: 700; flex: 0 0 auto; }
+
+/* Exact start times */
+.slotgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
+.slot {
+  min-height: 48px; padding: 8px 10px; cursor: pointer;
+  background: var(--white); border: 1px solid var(--border-firm);
+  border-radius: var(--radius-sm); font-size: 15px; color: var(--charcoal);
+}
+.slot:hover { border-color: var(--sage); }
+.slot.on { background: var(--sage); border-color: var(--sage); color: #fff; font-weight: 600; }
+
+/* Review */
+.review { border: 1px solid var(--border); border-radius: var(--radius); background: var(--white); overflow: hidden; margin: var(--s4) 0; }
+.review-row {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: var(--s4);
+  padding: 14px var(--s5); border-bottom: 1px solid var(--border);
+}
+.review-row:last-child { border-bottom: 0; }
+.review-row > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.review-label { font-size: var(--fs-label); text-transform: uppercase; letter-spacing: .12em; color: var(--graygreen); }
+.review-value { font-size: 16px; }
+.review-empty { font-size: 16px; color: var(--graygreen); font-style: italic; }
+.review-row .linkbtn { flex: 0 0 auto; }

@@ -187,6 +187,12 @@ select
      from public.partner_areas pa
      join public.cities c on c.code = pa.city_code
     where pa.partner_id = m.id) as areas,
+  -- The PSGC codes behind those areas. The booking form has to match a chosen
+  -- city code against a partner's coverage, and comparing display names would
+  -- put the seven San Joses in the wrong province.
+  (select coalesce(array_agg(pa.city_code order by pa.city_code), '{}'::text[])
+     from public.partner_areas pa
+    where pa.partner_id = m.id) as area_codes,
   -- The same places, always qualified with their province. A directory card can
   -- get away with the short name, but a profile cannot: seven of them are called
   -- San Jose and the customer has to know which one they are booking.
