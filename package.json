@@ -6,9 +6,15 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:app-release": "node --experimental-strip-types scripts/test-app-release.ts",
+    "app:align": "node scripts/align-apk.mjs android/app/build/outputs/apk/release/app-release.apk android/app/build/outputs/apk/release/aligned.apk",
+    "app:check": "node scripts/align-apk.mjs --check android/app/build/outputs/apk/release/app-release.apk",
+    "app:upload": "node scripts/upload-app-release.mjs"
   },
   "dependencies": {
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/core": "^8.5.2",
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.57.4",
     "lucide-react": "^0.468.0",
@@ -19,6 +25,8 @@
     "web-push": "^3.6.7"
   },
   "devDependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/cli": "^8.5.2",
     "@types/node": "^20.17.10",
     "@types/nodemailer": "^8.0.2",
     "@types/react": "^18.3.12",

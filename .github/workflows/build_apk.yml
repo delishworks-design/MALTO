@@ -1,0 +1,160 @@
+name: Build the partner APK
+
+# Why this exists even though the APK can be built locally:
+#
+#   1. compileSdk 36 cannot be built on the aarch64 machine the debug build
+#      runs on, because aapt2 from the SDK is x86-64 and the one runnable
+#      aarch64 copy cannot read android-35/36 resource tables. Push
+#      notifications need a Capacitor plugin that forces compileSdk 36, so the
+#      push-enabled build has to happen somewhere else.
+#   2. Release signing must not depend on one laptop. The keystore is a secret
+#      and is never in the repository, so a build here is the only place the
+#      signing key is available besides the machine that holds it.
+#   3. A reproducible artifact that is not the state of someone's working tree.
+#
+# The build is deliberately not run on push to main. Every release should be an
+# explicit, numbered build, and the versionCode has to increase for Android to
+# treat it as an update at all.
+on:
+  workflow_dispatch:
+    inputs:
+      versionName:
+        description: 'versionName, e.g. 1.0.1'
+        required: true
+      versionCode:
+        description: 'versionCode, must be higher than any published build'
+        required: true
+      minVersion:
+        description: 'Lowest version allowed to keep running. Defaults to versionName.'
+        required: false
+      upload:
+        description: 'Publish to the download bucket when this succeeds'
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    # x86-64, which is what the Android SDK's own tooling is built for.
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - run: npm ci
+
+      # The keystore arrives as a base64 string so it is never written to disk in
+      # the clear. Store it with: base64 -w0 malto-release.jks
+      - name: Restore the signing keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.MALTO_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.MALTO_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::error::MALTO_KEYSTORE_BASE64 is not set. Without it only a"
+            echo "::error::debug-signed APK can be produced, which cannot update"
+            echo "::error::an already installed app."
+            exit 1
+          fi
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/malto-release.jks"
+          chmod 600 "$RUNNER_TEMP/malto-release.jks"
+          echo "keystore restored, ${#KEYSTORE_B64} base64 chars"
+
+      - name: Check the versions
+        run: |
+          if [ "${{ inputs.versionCode }}" -le 0 ]; then
+            echo "::error::versionCode must be a positive integer"
+            exit 1
+          fi
+          echo "building ${{ inputs.versionName }} (code ${{ inputs.versionCode }})"
+
+      - name: Build the release APK
+        working-directory: android
+        env:
+          MALTO_KEYSTORE: ${{ runner.temp }}/malto-release.jks
+          MALTO_KEYSTORE_PASSWORD: ${{ secrets.MALTO_KEYSTORE_PASSWORD }}
+          MALTO_KEY_ALIAS: malto
+          MALTO_KEY_PASSWORD: ${{ secrets.MALTO_KEYSTORE_PASSWORD }}
+        run: |
+          ./gradlew assembleRelease --no-daemon \
+            -PappVersionCode=${{ inputs.versionCode }} \
+            -PappVersionName=${{ inputs.versionName }}
+
+      # zipalign has to run before signing: rewriting the archive to align it
+      # invalidates the signature. build-tools is used directly rather than the
+      # copy in $ANDROID_SDK_ROOT/build-tools, because the one Gradle picks has
+      # historically been a version that could not read the resource table.
+      - name: Align the APK
+        run: |
+          APK=android/app/build/outputs/apk/release/app-release.apk
+          ALIGN="$ANDROID_SDK_ROOT/build-tools/35.0.0/zipalign"
+          "$ALIGN" -f -p 4 "$APK" "$RUNNER_TEMP/aligned.apk"
+          mv "$RUNNER_TEMP/aligned.apk" "$APK"
+          "$ALIGN" -c -p 4 "$APK"
+
+      - name: Sign the aligned APK
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.MALTO_KEYSTORE_PASSWORD }}
+        run: |
+          APKSIGNER="$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner"
+          APK=android/app/build/outputs/apk/release/app-release.apk
+          "$APKSIGNER" sign \
+            --ks "$RUNNER_TEMP/malto-release.jks" \
+            --ks-key-alias malto \
+            --ks-pass "pass:$KEYSTORE_PASSWORD" \
+            --key-pass "pass:$KEYSTORE_PASSWORD" \
+            --v1-signing-enabled false \
+            --v2-signing-enabled true \
+            --out "$RUNNER_TEMP/signed.apk" \
+            "$APK"
+          mv "$RUNNER_TEMP/signed.apk" "$APK"
+          "$APKSIGNER" verify --verbose --print-certs "$APK"
+
+      - name: Check the artifact
+        run: |
+          APK=android/app/build/outputs/apk/release/app-release.apk
+          "$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt2" dump badging "$APK" \
+            | grep -E "^package|application-label:|^sdkVersion|^targetSdkVersion"
+          # The version baked into the binary has to be the one that was asked
+          # for. This is the check that catches a forgotten -P flag, which is
+          # otherwise invisible until cleaners cannot install the update.
+          node --input-type=module -e "
+            const { readManifestVersion } = await import('./scripts/lib/apk.mjs');
+            const v = readManifestVersion('$APK');
+            const want = { versionName: '${{ inputs.versionName }}', versionCode: Number('${{ inputs.versionCode }}') };
+            if (v.versionName !== want.versionName || v.versionCode !== want.versionCode) {
+              console.error('binary says', v, 'but the build asked for', want);
+              process.exit(1);
+            }
+            console.log('binary version matches:', v.versionName, v.versionCode);
+          "
+          ls -la "$APK"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: malto-partner-${{ inputs.versionName }}
+          path: android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 90
+
+      # Off by default on purpose. Publishing rewrites the URL that every
+      # cleaner with the app installed will be told to fetch, so it should be a
+      # decision someone makes on purpose rather than a side effect of a build.
+      - name: Publish the download
+        if: ${{ inputs.upload }}
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          node scripts/upload-app-release.mjs \
+            android/app/build/outputs/apk/release/app-release.apk \
+            --minVersion "${{ inputs.minVersion || inputs.versionName }}"

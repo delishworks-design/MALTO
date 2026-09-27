@@ -180,7 +180,7 @@ export default async function Home() {
             cover, and your own working hours. We handle the booking, the quote and the customer.
           </p>
           <div className="actions">
-            <Link className="btn" href="/portal/register">Become a partner</Link>
+            <Link className="btn" href="/join">Become a partner</Link>
             <Link className="btn secondary" href="/terms">Read the terms</Link>
           </div>
         </div>

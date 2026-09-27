@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Matches the sage token in design-system.css, so the icon and the site
+         agree. -->
+    <color name="ic_launcher_background">#3F6B4F</color>
+</resources>

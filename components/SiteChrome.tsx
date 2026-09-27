@@ -27,6 +27,7 @@ export const DEFAULT_LINKS = [
   { href: "/how-it-works", label: "How it works" },
   { href: "/about", label: "About" },
   { href: "/contact", label: "Contact" },
+  { href: "/join", label: "Join" },
 ];
 
 export type NavLink = { href: string; label: string };
@@ -123,7 +124,7 @@ export function SiteFooter({
             <li><Link href="/partners">Browse cleaners</Link></li>
             {/* The growth loop: without this, an independent cleaner has no way
                 to discover that they can join. */}
-            <li><Link href="/portal/register">Become a partner</Link></li>
+            <li><Link href="/join">Become a partner</Link></li>
           </ul>
         </div>
 

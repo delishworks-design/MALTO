@@ -44,6 +44,18 @@ const GROUPS:{title:string;hint:string;fields:Field[]}[]=[
     {key:"seo_title",label:"Meta title"},
     {key:"seo_description",label:"Meta description",type:"textarea"},
   ]},
+  // Written by scripts/upload-app-release.mjs when a build is published. They
+  // are editable by hand only so a wrong link can be corrected without a
+  // release: until a build is published partner_app_url is empty and the /join
+  // page offers the web portal instead of a button that goes nowhere.
+  {title:"Partner app",hint:"Itinalaga ng upload-app-release.mjs. Kapag may maling link, ay dito lang i-edit.",fields:[
+    {key:"partner_app_url",label:"APK download URL"},
+    {key:"partner_app_version",label:"Published version"},
+    {key:"partner_app_min_version",label:"Minimum allowed version"},
+    {key:"partner_app_size_mb",label:"Size in MB"},
+    {key:"partner_app_sha256",label:"SHA-256"},
+    {key:"partner_app_updated_at",label:"Published at"},
+  ]},
 ];
 
 export default function SettingsAdmin(){

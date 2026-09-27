@@ -134,7 +134,11 @@ export default function PortalHome(){
     setBusy("me"); setError(null);
     try{
       // Only these two columns are member-editable; a trigger blocks the rest.
-      const {error:err}=await createClient().from("team_members").update(patch).eq("user_id",(me as any)?.id);
+      // The filter has to be on id, not user_id: `me` was selected as
+      // team_members.id, so matching that value against the user_id column found
+      // no rows. Supabase reported no error, so the toggle silently did nothing
+      // and showed "Availability updated" every time.
+      const {error:err}=await createClient().from("team_members").update(patch).eq("id",(me as any)?.id);
       if(err) throw err;
       await load();
       flash("Availability updated.");

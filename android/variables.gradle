@@ -1,0 +1,27 @@
+ext {
+    // Compiled against API 34 rather than 36, and that is a deliberate choice
+    // for this machine rather than a preference. The only aapt2 binaries that
+    // will run here are the aarch64 2.19 builds: the ones AGP downloads are
+    // x86-64 and their ELF loader is absent, and 2.19 cannot read the resource
+    // tables in platforms 35 and 36 ("illegal map type 'string' (22)"). The
+    // release APK is built on a GitHub Actions ubuntu runner, where compileSdk
+    // 36 builds fine, so this is only the local verification path.
+    minSdkVersion = 24
+    compileSdkVersion = 34
+    targetSdkVersion = 34
+
+    // Pinned to the last releases that still build against API 34. Newer ones
+    // declare a minimum compileSdk of 35 and fail with "Dependency ... requires
+    // compileSdk 35".
+    androidxActivityVersion = '1.9.3'
+    androidxAppCompatVersion = '1.7.0'
+    androidxCoordinatorLayoutVersion = '1.2.0'
+    androidxCoreVersion = '1.13.1'
+    androidxFragmentVersion = '1.8.5'
+    coreSplashScreenVersion = '1.0.1'
+    androidxWebkitVersion = '1.12.1'
+    junitVersion = '4.13.2'
+    androidxJunitVersion = '1.3.0'
+    androidxEspressoCoreVersion = '3.6.1'
+    cordovaAndroidVersion = '14.0.1'
+}

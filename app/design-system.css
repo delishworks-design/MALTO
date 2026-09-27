@@ -360,6 +360,73 @@ textarea { min-height: 110px; resize: vertical; }
 
 .step p { margin: 8px 0 0; color: var(--graygreen); font-size: 15px; }
 
+/* ------------------------------------------------------------------ *
+ * Joining and the partner app
+ * ------------------------------------------------------------------ */
+
+/* Generic two column. The homepage's .join-grid is the same grid with
+ * vertical centring, which its hero needs and a body of text does not. */
+.grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--s7); }
+
+/* Numbered steps. A real <ol> so the list is announced as one, with the
+ * number drawn rather than generated: a CSS counter disappears from a screen
+ * reader, and a list marker cannot be styled to match the rest. */
+.steps { list-style: none; margin: 0; padding: 0; counter-reset: step; }
+.steps > li { display: flex; gap: var(--s4); align-items: flex-start; padding: var(--s4) 0; }
+.steps > li + li { border-top: 1px solid var(--border); }
+.step-n {
+  flex: 0 0 auto; counter-increment: step;
+  width: 30px; height: 30px; border-radius: 999px;
+  display: grid; place-items: center;
+  background: var(--softsage); color: var(--sage);
+  font-size: 15px; font-weight: 600;
+}
+.steps > li > div > h3 { font-size: var(--fs-h3); margin: 2px 0 0; }
+.steps > li > div > p { margin: 6px 0 0; color: var(--graygreen); font-size: 15px; }
+.steps > li > div > p.muted { color: var(--graygreen); }
+/* Install instructions have no headings, so they lose the divider rhythm. */
+.steps.compact > li { padding: var(--s3) 0; }
+.steps.compact > li:first-child { padding-top: 0; }
+
+/* The download block. Deliberately plain: this is read on a phone by someone
+ * who just tapped a link, so the version and size are visible without
+ * expanding anything. */
+.download-card {
+  background: var(--white); border: 1px solid var(--border-firm);
+  border-radius: var(--radius); padding: var(--s5); margin-top: var(--s5);
+  display: flex; flex-wrap: wrap; gap: var(--s5); align-items: center;
+}
+.download-card .btn { margin-bottom: 0; }
+.release-meta { display: flex; flex-wrap: wrap; gap: var(--s5); margin: 0; }
+.release-meta dt {
+  font-size: var(--fs-label); text-transform: uppercase; letter-spacing: .12em;
+  color: var(--graygreen);
+}
+.release-meta dd { margin: 4px 0 0; font-size: 15px; }
+.release-meta code { font-size: 13px; color: var(--charcoal); }
+
+.app-promo { align-items: start; }
+.app-promo h2 { margin-top: var(--s2); }
+
+/* Keeps centred prose to a readable measure instead of the full shell width. */
+.narrow { max-width: 62ch; margin-left: auto; margin-right: auto; }
+
+/* Update gate inside the app. Covers the whole viewport on purpose: the point
+ * is to stop a cleaner working from a build we know is broken, so it is not a
+ * dismissible banner they will swipe past. */
+.version-gate {
+  position: fixed; inset: 0; z-index: 9999;
+  background: rgba(20, 23, 26, .72);
+  display: grid; place-items: center; padding: var(--s5);
+}
+.version-gate-card {
+  background: var(--white); border-radius: var(--radius);
+  padding: var(--s6); max-width: 42ch; text-align: center;
+}
+.version-gate-card h2 { font-size: var(--fs-h3); margin-top: 0; }
+.version-gate-card p { color: var(--charcoal); }
+.version-gate-card .btn { display: inline-block; margin: var(--s4) 0; }
+
 /* Legal documents */
 .legal-body { max-width: 74ch; padding-bottom: var(--s8); }
 .legal-body h2 { font-size: 24px; margin-top: var(--s7); }

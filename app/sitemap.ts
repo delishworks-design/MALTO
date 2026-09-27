@@ -28,7 +28,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${base}/contact`, lastModified: now, changeFrequency: "yearly", priority: 0.4 },
     { url: `${base}/privacy`, lastModified: now, changeFrequency: "yearly", priority: 0.2 },
     { url: `${base}/terms`, lastModified: now, changeFrequency: "yearly", priority: 0.2 },
-    // How partners join, not a page for customers to read.
+    // How partners join, not a page for customers to read. /join replaces
+    // /portal/register in the navigation, and it is the one that also carries
+    // the app download, so it is the one worth indexing.
+    { url: `${base}/join`, lastModified: now, changeFrequency: "monthly", priority: 0.6 },
     { url: `${base}/portal/register`, lastModified: now, changeFrequency: "monthly", priority: 0.5 },
   ];
 

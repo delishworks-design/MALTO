@@ -18,3 +18,20 @@ yarn-error.log*
 .vercel
 supabase/.temp/
 .env*
+
+# Android build output and local machine config
+/android/.gradle/
+/android/build/
+/android/app/build/
+/android/capacitor-cordova-android-plugins/
+/android/local.properties
+/android/app/src/main/assets/public/
+/android/app/src/main/assets/capacitor.config.json
+/android/app/src/main/assets/capacitor.plugins.json
+/android/.idea/
+*.iml
+
+# Firebase config. The repo is public, so this stays out of git even though the
+# API key is not a server credential. The plugin is only applied when push is
+# wired up, so the build does not depend on it yet.
+android/app/google-services.json
