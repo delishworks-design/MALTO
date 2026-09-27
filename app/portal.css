@@ -25,3 +25,44 @@
   .jobgrid { grid-template-columns:minmax(0,1fr); }
   .jobcard-top { flex-direction:column; gap:10px; }
 }
+
+/* ------------------------------------------------------------------ *
+ * Partner registration
+ * ------------------------------------------------------------------ */
+.reg-shell { width:min(680px,calc(100% - 40px)); margin:0 auto; padding:48px 0 100px; }
+.reg-title { max-width:none; }
+.reg-steps { display:flex; gap:24px; list-style:none; margin:32px 0; padding:0 0 20px; border-bottom:1px solid var(--border); flex-wrap:wrap; }
+.reg-steps li { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--graygreen); }
+.reg-steps li.on { color:var(--charcoal); font-weight:500; }
+.reg-steps li.done { color:var(--sage); }
+.reg-step-num { width:24px; height:24px; border-radius:50%; border:1px solid currentColor; display:grid; place-items:center; font-size:12px; }
+.reg-steps li.done .reg-step-num { background:var(--sage); border-color:var(--sage); color:#fff; }
+.reg-steps li.on .reg-step-num { background:var(--charcoal); border-color:var(--charcoal); color:#fff; }
+
+.choice-row { display:flex; flex-wrap:wrap; gap:10px; }
+.choice-chip { display:inline-flex; align-items:center; gap:8px; border:1px solid var(--border-firm); background:var(--white); padding:10px 14px; border-radius:999px; font-size:13px; cursor:pointer; }
+.choice-chip:has(input:checked) { background:var(--softsage); border-color:#C6DCCC; color:var(--sage); }
+.choice-chip input { width:auto; margin:0; }
+
+.city-results { list-style:none; margin:6px 0 0; padding:0; border:1px solid var(--border-firm); border-radius:var(--radius-sm); background:var(--white); overflow:hidden; max-height:260px; overflow-y:auto; }
+.city-results button { display:block; width:100%; text-align:left; background:none; border:0; padding:11px 14px; font-size:14px; }
+.city-results button:hover { background:var(--softsage); }
+
+.chips { list-style:none; display:flex; flex-wrap:wrap; gap:8px; margin:12px 0 0; padding:0; }
+.chip { display:inline-flex; align-items:center; gap:8px; background:var(--softsage); border:1px solid #C6DCCC; color:var(--sage); border-radius:999px; padding:6px 8px 6px 13px; font-size:13px; }
+.chip button { background:none; border:0; color:inherit; cursor:pointer; font-size:16px; line-height:1; padding:0 4px; }
+
+.agreement { border:1px solid var(--border-firm); border-radius:var(--radius); background:var(--white); overflow:hidden; }
+.agreement-head { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:18px 20px; border-bottom:1px solid var(--border); flex-wrap:wrap; }
+.agreement-head h2 { margin:0; font-size:24px; }
+.agreement .notice { margin:0; border-radius:0; border-left:0; border-right:0; }
+.agreement-body { max-height:340px; overflow-y:auto; padding:4px 20px 20px; line-height:1.7; font-size:15px; }
+.agreement-body h3 { font-size:17px; margin:22px 0 6px; }
+.agreement-body p { margin:0 0 12px; }
+.agreement-hint { margin:0; padding:0 20px 16px; }
+
+.agreement-gate { display:flex; flex-direction:column; gap:20px; margin-top:24px; padding:20px; border:1px solid var(--border-firm); border-radius:var(--radius); background:var(--white); }
+.gate-check { display:flex; align-items:flex-start; gap:12px; font-size:14px; text-transform:none; letter-spacing:0; color:var(--charcoal); font-weight:400; cursor:pointer; }
+.gate-check input { width:auto; margin-top:3px; flex:0 0 auto; }
+
+.reg-actions { display:flex; gap:10px; margin-top:28px; flex-wrap:wrap; }
