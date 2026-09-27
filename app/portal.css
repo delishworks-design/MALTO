@@ -66,3 +66,45 @@
 .gate-check input { width:auto; margin-top:3px; flex:0 0 auto; }
 
 .reg-actions { display:flex; gap:10px; margin-top:28px; flex-wrap:wrap; }
+
+/* ------------------------------------------------------------------ *
+ * Partner admin: marketplace fields
+ * ------------------------------------------------------------------ */
+.complete-bar {
+  display: inline-block; width: 72px; height: 5px; border-radius: 999px;
+  background: var(--border); margin-left: 8px; vertical-align: middle; overflow: hidden;
+}
+.complete-bar > span { display: block; height: 100%; background: var(--sage); }
+
+.verifystrip {
+  display: flex; gap: 16px; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; padding: 14px 16px; margin-bottom: 18px;
+  background: var(--softsage); border: 1px solid var(--border-firm); border-radius: var(--radius);
+}
+
+.chipset { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  border: 1px solid var(--border-firm); background: var(--white); color: var(--charcoal);
+  border-radius: 999px; padding: 8px 15px; font-size: 14px; cursor: pointer; min-height: 38px;
+}
+.chip:hover { border-color: var(--sage); }
+.chip.on { background: var(--sage); border-color: var(--sage); color: #fff; }
+
+.picker {
+  display: flex; flex-direction: column; border: 1px solid var(--border-firm);
+  border-radius: var(--radius); overflow: hidden; margin-top: 8px; background: var(--white);
+}
+.picker button {
+  display: flex; justify-content: space-between; gap: 12px; align-items: baseline;
+  padding: 11px 14px; background: none; border: 0; border-bottom: 1px solid var(--border);
+  cursor: pointer; text-align: left; font-size: 15px; color: var(--charcoal);
+}
+.picker button:last-child { border-bottom: 0; }
+.picker button:hover:not(:disabled) { background: var(--softsage); }
+.picker button:disabled { opacity: 0.45; cursor: default; }
+
+.hoursgrid { display: flex; flex-direction: column; gap: 2px; }
+.hoursgrid-row {
+  display: grid; grid-template-columns: 48px 1fr; gap: 12px; align-items: baseline;
+  padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 14px;
+}

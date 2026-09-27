@@ -80,13 +80,13 @@ export default function ServicesAdmin(){
       flash(row.isNew?"Service added.":"Service saved.");
       await load();
     }catch(e:any){
-      setError(e?.code==="23505"?"May existing nang service na may ganyang name.":(e?.message||"Could not save."));
+      setError(e?.code==="23505"?"A service with that name already exists.":(e?.message||"Could not save."));
     }finally{ setBusy(null); }
   };
 
   const remove=async(row:Row)=>{
     if(!row.id) return;
-    if(!confirm(`Delete "${row.name}"? Hindi mabubura ang mga booking na may ganitong service.`)) return;
+    if(!confirm(`Delete "${row.name}"? Bookings that use this service will not be deleted.`)) return;
     setBusy(row.id); setError(null);
     try{
       const supabase=createClient();
@@ -117,12 +117,12 @@ export default function ServicesAdmin(){
 
     <div className="eyebrow">SERVICES</div>
     <h1>Scope of work.</h1>
-    <p className="small muted">Ang mga aktibong service dito ang lumalabas sa homepage, sa /services at sa Step 1 ng booking form.</p>
+    <p className="small muted">The active services here are what appear on the homepage, on /services and in step 1 of the booking form.</p>
 
     <div className="toolbar">
       <button className="btn" style={{minHeight:42}}
         onClick={()=>{ setItems(l=>[empty(),...l]); setError(null); }}>+ ADD SERVICE</button>
-      <span className="small muted">Baguhin ang laman, pagkatapos i-SAVE ang hilera.</span>
+      <span className="small muted">Edit the contents, then press SAVE on the row.</span>
     </div>
 
     <div className="table">

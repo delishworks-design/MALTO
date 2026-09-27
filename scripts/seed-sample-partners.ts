@@ -86,7 +86,7 @@ const SAMPLES: Sample[] = [
     tagline: "After-hours cleaning for shops, studios and offices.",
     bio: "Sample profile. Marco works around opening hours so the space is ready before the first customer arrives. Includes desks, glass partitions and the kitchen area.",
     years_experience: 5,
-    cities: ["60100", "80300"],
+    cities: ["30600", "80300"],
     services: ["Small Business"],
     colour: "#5A6B7A",
   },
@@ -204,19 +204,31 @@ async function main() {
     if (serviceIds.length !== s.services.length) {
       throw new Error(`${s.slug}: unknown service in ${JSON.stringify(s.services)}`);
     }
-    await admin.from("partner_services").delete().eq("partner_id", memberId);
-    await admin.from("partner_services").insert(
+    const { error: svcDelErr } = await admin
+      .from("partner_services")
+      .delete()
+      .eq("partner_id", memberId);
+    if (svcDelErr) throw new Error(`${s.slug}: ${svcDelErr.message}`);
+    const { error: svcInsErr } = await admin.from("partner_services").insert(
       serviceIds.map((service_id) => ({ partner_id: memberId, service_id }))
     );
+    if (svcInsErr) throw new Error(`${s.slug} services: ${svcInsErr.message}`);
 
-    await admin.from("partner_areas").delete().eq("partner_id", memberId);
-    await admin
+    const { error: areaDelErr } = await admin
+      .from("partner_areas")
+      .delete()
+      .eq("partner_id", memberId);
+    if (areaDelErr) throw new Error(`${s.slug}: ${areaDelErr.message}`);
+    // An unknown code fails the foreign key, and that used to be dropped
+    // silently, leaving the partner with no service area at all.
+    const { error: areaInsErr } = await admin
       .from("partner_areas")
       .insert(s.cities.map((city_code) => ({ partner_id: memberId, city_code })));
+    if (areaInsErr) throw new Error(`${s.slug} areas: ${areaInsErr.message}`);
 
     // A plausible weekly week, so "available this week" has something to show.
     await admin.from("partner_availability_rules").delete().eq("partner_id", memberId);
-    await admin.from("partner_availability_rules").insert(
+    const { error: ruleErr } = await admin.from("partner_availability_rules").insert(
       [1, 2, 3, 4, 5].map((weekday) => ({
         partner_id: memberId,
         weekday,
@@ -224,6 +236,7 @@ async function main() {
         end_time: "18:00",
       }))
     );
+    if (ruleErr) throw new Error(`${s.slug} availability: ${ruleErr.message}`);
 
     console.log(`  seeded ${s.name} (${s.slug})`);
   }

@@ -156,7 +156,11 @@ create trigger trg_partner_agreements_immutable
 -- The column list is the security boundary. Anything not named here is private,
 -- and adding a column to team_members does not expose it.
 -- ---------------------------------------------------------------------------
-create or replace view public.public_partners as
+-- Dropped first: CREATE OR REPLACE VIEW cannot insert a column into an
+-- existing column list, it only replaces rows in place.
+drop view if exists public.public_partners;
+
+create view public.public_partners as
 select
   m.id,
   m.slug,
@@ -168,6 +172,11 @@ select
   m.years_experience,
   m.verified,
   m.is_accepting_jobs,
+  -- Exposed so the interface is forced to mark a sample as one. The samples are
+  -- deliberately visible: a marketplace cannot be reviewed while the directory
+  -- is empty, and a SAMPLE badge plus a not-bookable state is a stronger
+  -- guarantee than hiding them. The booking picker filters on this column.
+  m.is_sample,
   m.sort_order,
   m.created_at,
   (select coalesce(array_agg(s.name order by s.sort_order, s.name), '{}'::text[])
@@ -178,6 +187,21 @@ select
      from public.partner_areas pa
      join public.cities c on c.code = pa.city_code
     where pa.partner_id = m.id) as areas,
+  -- The same places, always qualified with their province. A directory card can
+  -- get away with the short name, but a profile cannot: seven of them are called
+  -- San Jose and the customer has to know which one they are booking.
+  (select coalesce(
+            array_agg(
+              case when c.disambiguated and c.province_name <> ''
+                then c.display_name || ', ' || c.province_name
+                else c.display_name
+              end
+              order by c.display_name, c.province_name
+            ),
+            '{}'::text[])
+     from public.partner_areas pa
+     join public.cities c on c.code = pa.city_code
+    where pa.partner_id = m.id) as area_labels,
   -- Completed work only, and only where this partner was actually the one on
   -- the job. Reviews arrive in a later round, so there is no rating column yet.
   (select count(*)::int
@@ -187,7 +211,6 @@ select
 from public.team_members m
 where m.active
   and m.portal_status = 'approved'
-  and not coalesce(m.is_sample, false)
   and m.slug is not null;
 
 grant select on public.public_partners to anon, authenticated;

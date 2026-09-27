@@ -16,12 +16,12 @@ const GROUPS:{title:string;hint:string;fields:Field[]}[]=[
     {key:"hero_note",label:"Hero side note",type:"textarea"},
     {key:"footer_tagline",label:"Footer tagline"},
   ]},
-  {title:"Buttons (CTA)",hint:"Label ng mga button sa buong website.",fields:[
+  {title:"Buttons (CTA)",hint:"Button labels used across the website.",fields:[
     {key:"cta_primary",label:"Primary button"},
     {key:"cta_secondary",label:"Secondary button"},
     {key:"cta_estimate",label:"Estimate button (pricing page)"},
   ]},
-  {title:"Section copy",hint:"Mga heading at paliwanag sa homepage at mga pahina.",fields:[
+  {title:"Section copy",hint:"Headings and explanations on the homepage and pages.",fields:[
     {key:"services_heading",label:"Services heading"},
     {key:"services_lead",label:"Services paragraph",type:"textarea"},
     {key:"pricing_heading",label:"Pricing heading"},
@@ -34,7 +34,7 @@ const GROUPS:{title:string;hint:string;fields:Field[]}[]=[
     {key:"contact_lead",label:"Contact paragraph",type:"textarea"},
     {key:"faq_heading",label:"FAQ heading"},
   ]},
-  {title:"Contact details",hint:"Papalitan ang walang laman na /contact at footer.",fields:[
+  {title:"Contact details",hint:"Fills in the empty /contact page and the footer.",fields:[
     {key:"contact_phone",label:"Phone"},
     {key:"contact_email",label:"Email"},
     {key:"contact_address",label:"Address"},
@@ -227,7 +227,7 @@ export default function SettingsAdmin(){
     if(busy) return;
     setBusy("pass"); setError(null);
     try{
-      if(!newPass) throw new Error("Ilagay ang bagong SMTP password.");
+      if(!newPass) throw new Error("Enter the new SMTP password.");
       const res=await fetch("/api/admin/email-password",{
         method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:newPass})
       });
@@ -263,7 +263,7 @@ export default function SettingsAdmin(){
 
     {/* -------- ACCOUNT -------- */}
     <div className="panel">
-      <div className="panel-head"><strong>Account</strong><span className="small muted">Palitan ang password ng admin login</span></div>
+      <div className="panel-head"><strong>Account</strong><span className="small muted">Change the admin login password</span></div>
       <div className="form-grid">
         <div className="field"><label>New password</label>
           <input type="password" value={pw1} onChange={e=>setPw1(e.target.value)} autoComplete="new-password"/></div>
@@ -298,9 +298,9 @@ export default function SettingsAdmin(){
         <div className="field full"><label>Reply-To (saan sasagutin ng client)</label>
           <input value={email.reply_to} onChange={e=>setEmail(s=>({...s,reply_to:e.target.value}))} placeholder="you@gmail.com"/></div>
 
-        <div className="field full"><label>SMTP password {hasPass&&<span className="small muted">(may nakaimbak na — i-type lang kung papalitan)</span>}</label>
+        <div className="field full"><label>SMTP password {hasPass&&<span className="small muted">(one is stored, only type here to replace it)</span>}</label>
           <input type="password" value={newPass} onChange={e=>setNewPass(e.target.value)}
-            placeholder={hasPass?"•••••••• (nakaimbak, naka-encrypt)":"Wala pang password — i-type ito"}
+            placeholder={hasPass?"•••••••• (stored, encrypted)":"No password yet, type one here"}
             autoComplete="new-password"/></div>
 
         <div className="field full">
@@ -316,7 +316,7 @@ export default function SettingsAdmin(){
             </button>
           </div>
           <p className="small muted" style={{marginTop:10}}>
-            Gmail: kailangan ng <strong>App Password</strong> (16 characters) — hindi ang normal na password.
+            Gmail needs an <strong>App Password</strong> (16 characters), not your normal password.
             <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer" className="linkbtn">Gumawa ng App Password</a>
           </p>
         </div>
@@ -325,7 +325,7 @@ export default function SettingsAdmin(){
 
     {/* -------- EMAIL DELIVERY -------- */}
     <div className="panel">
-      <div className="panel-head"><strong>Email delivery</strong><span className="small muted">Naiire-record ang bawat email bago ipadala, at sinusubukan muli hanggang matagumpay</span></div>
+      <div className="panel-head"><strong>Email delivery</strong><span className="small muted">Every email is recorded before it is sent, and retried until it goes out</span></div>
 
       {(()=>{
         const fromDiffers=email.from_email.trim()&&email.smtp_user.trim()
@@ -342,13 +342,13 @@ export default function SettingsAdmin(){
             </div>}
           {failed.length>0&&
             <p className="small" style={{margin:"0 0 14px"}}>
-              {failed.length} email{failed.length===1?"":"s"} could not be sent. Automatic retry pa rin ang tumatakbo bawat 5 minuto.
+              {failed.length} email{failed.length===1?"":"s"} could not be sent. Automatic retry is still running every 5 minutes.
             </p>}
           {shown.length===0
             ? <p className="small muted" style={{margin:0}}>Wala pang email na ipinadala.</p>
             : <>
               <p className="small muted" style={{margin:"0 0 12px"}}>
-                Pinakabagong {shown.length}. Ang “accepted” ay sinasabi lang ng Gmail na natanggap nito — hindi garantisadong nakarating sa inbox.
+                Showing the latest {shown.length}. “Accepted” only means Gmail took the message, it does not guarantee it landed in the inbox.
               </p>
               <div className="table" style={{marginTop:0}}>
                 <table>
@@ -381,9 +381,9 @@ export default function SettingsAdmin(){
 
     {/* -------- RECURRING PLANS -------- */}
     <div className="panel">
-      <div className="panel-head"><strong>Recurring plans</strong><span className="small muted">Nakalagay ang discount na nakikita ng client sa booking form at ang suggested price</span></div>
+      <div className="panel-head"><strong>Recurring plans</strong><span className="small muted">Sets the discount the customer sees in the booking form, and the suggested price</span></div>
       {recurring.length===0
-        ? <p className="small muted" style={{margin:0}}>Wala pang recurring plan.</p>
+        ? <p className="small muted" style={{margin:0}}>No recurring plans yet.</p>
         : <>
           <div className="table" style={{marginTop:0}}>
             <table>
@@ -399,8 +399,8 @@ export default function SettingsAdmin(){
             </table>
           </div>
           <p className="small muted" style={{margin:"12px 0 0"}}>
-            Ang “One-time” ay dapat 0. Ang existing bookings ay may sariling naka-save na %, kaya hindi napipigilan ang mga
-            nakatapos nang kasunduan kapag palitan ang discount.
+            “One-time” should be 0. Existing bookings keep the percentage they were made under, so changing this does not
+            rewrite the discount on deals that are already agreed.
           </p>
           <button className="btn" style={{marginTop:14,minHeight:42}} disabled={savingRec}
             onClick={saveRecurring}>

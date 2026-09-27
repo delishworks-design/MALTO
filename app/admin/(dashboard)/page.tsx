@@ -637,7 +637,7 @@ export default function Bookings(){
                     </div>
                     <div className="field full">
                       <label>Internal note (admin only — the customer does not see this)</label>
-                      <textarea placeholder="Hal. Natawagan na, malapit ma-confirm…"
+                      <textarea placeholder="e.g. Called, confirming shortly…"
                         value={noteDraft[b.id]??(b.admin_notes??"")}
                         onChange={e=>setNoteDraft(p=>({...p,[b.id]:e.target.value}))}/>
                       <div style={{display:"flex",gap:8,marginTop:8}}>

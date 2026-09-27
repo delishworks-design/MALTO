@@ -13,7 +13,7 @@ type Card={id:string;label:string;amount:string;suffix:string;sort_order:string;
 
 const round50=(n:number)=>Math.ceil(n/50)*50;
 const money=(n:number)=>`₱${Math.round(n).toLocaleString("en-PH")}`;
-// Blank, "—" or garbage all become 0 for maths and for the "Defaults na seed"
+// Blank, "—" or garbage all become 0 for maths and for the "Seeded defaults"
 // line, so an empty box never renders a bare 0 that looks like a real value.
 const num=(v:string|number)=>Number(String(v).replace(/[^0-9.]/g,""))||0;
 // Echoes the raw box so a blank one reads as "—", not as a real 0.
@@ -147,7 +147,7 @@ export default function PricingAdmin(){
       flash("Price card saved.");
       await load();
     }catch(e:any){
-      setError(e?.code==="23505"?"May existing nang card na may ganyang label.":(e?.message||"Could not save."));
+      setError(e?.code==="23505"?"A card with that label already exists.":(e?.message||"Could not save."));
     }finally{ setBusy(null); }
   };
 
@@ -175,11 +175,11 @@ export default function PricingAdmin(){
 
     <div className="eyebrow">PRICING</div>
     <h1>Price calculator.</h1>
-    <p className="small muted">Isang calculator na may logic: labor × hours × cleaners + laki ng trabaho + layo, tapos company margin, at floor sa minimum charge.</p>
+    <p className="small muted">A calculator with the real logic: labour × hours × cleaners, plus the size of the job and travel, then the company margin, with a floor on the minimum charge.</p>
 
     {/* ---------------- CALCULATOR ---------------- */}
     <div className="panel">
-      <div className="panel-head"><strong>Calculator</strong><span className="small muted">Live estimate para sa booking</span></div>
+      <div className="panel-head"><strong>Calculator</strong><span className="small muted">Live estimate for a booking</span></div>
       <div className="form-grid">
         <div className="field full">
           <label>Service</label>
@@ -211,7 +211,7 @@ export default function PricingAdmin(){
 
     {/* ---------------- RULES ---------------- */}
     <div className="panel">
-      <div className="panel-head"><strong>Pricing rules</strong><span className="small muted">Pribado — hindi ito nakikita ng public website</span></div>
+      <div className="panel-head"><strong>Pricing rules</strong><span className="small muted">Private — not shown on the public website</span></div>
       <div className="form-grid">
         <div className="field"><label>Hourly rate per cleaner (₱)</label>
           <input type="number" min={0} value={rules.hourly_rate} onChange={e=>setRules(r=>({...r,hourly_rate:e.target.value}))}/></div>
