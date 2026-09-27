@@ -207,7 +207,11 @@ export default function Bookings(){
     finally{ setBusy(null); }
   };
 
-  const sendQuote=async(id:string)=>{
+  // Bookings that the server refused a repeat quote for, so the row can offer
+  // an explicit SEND AGAIN instead of the admin hammering the button.
+  const [quoteBlock,setQuoteBlock]=useState<{id:string;message:string;canOverride:boolean}[]>([]);
+
+  const sendQuote=async(id:string,override=false)=>{
     if(busy) return;
     setBusy(id); setError(null);
     try{
@@ -217,10 +221,16 @@ export default function Bookings(){
         throw new Error("Enter the final price before sending a quote.");
       const res=await fetch("/api/send-quote",{
         method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({booking_id:id,price:value})
+        body:JSON.stringify({booking_id:id,price:value,...(override?{override:true}:{})})
       });
       const j=await res.json().catch(()=>({} as any));
+      if(res.status===409&&j?.alreadySent){
+        setQuoteBlock(b=>[...b.filter(x=>x.id!==id),{id,message:j.error,canOverride:true}]);
+        setNotice(null);
+        return;
+      }
       if(!res.ok||!j.ok) throw new Error(j.error||"Could not send the quote.");
+      setQuoteBlock(b=>b.filter(x=>x.id!==id));
       setRows(rs=>rs.map(r=>r.id===id?{...r,price:value,status:j.status||r.status}:r));
       setNotice(`Quote sent to ${j.to}.`);
       setTimeout(()=>setNotice(null),4000);
@@ -372,8 +382,13 @@ export default function Bookings(){
                           onClick={()=>updatePrice(b.id)}>SAVE</button>
                         <button className="btn secondary" disabled={busy===b.id} style={{minHeight:44,opacity:busy===b.id?.6:1}}
                           onClick={()=>sendQuote(b.id)}>SEND QUOTE</button>
+                        {quoteBlock.some(x=>x.id===b.id&&x.canOverride)&&
+                          <button className="btn secondary" disabled={busy===b.id} style={{minHeight:44,opacity:busy===b.id?.6:1}}
+                            onClick={()=>sendQuote(b.id,true)}>SEND AGAIN</button>}
                       </div>
-                      <span className="small muted">“SEND QUOTE” saves the price, marks the booking Confirmed and emails the customer.</span>
+                      {quoteBlock.some(x=>x.id===b.id)
+                        ? <span className="small" style={{color:"#8A6420"}}>{quoteBlock.find(x=>x.id===b.id)?.message}</span>
+                        : <span className="small muted">“SEND QUOTE” emails the customer, and only once that email is accepted does it save the price and mark the booking Confirmed.</span>}
                     </div>
                     <div className="field">
                       <label>Photo</label>

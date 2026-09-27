@@ -58,26 +58,23 @@ export async function enqueueEmail(input: EnqueueInput): Promise<string | null> 
   return data.id as string;
 }
 
-async function sendOne(row: OutboxRow): Promise<void> {
+async function sendOne(row: OutboxRow): Promise<string> {
   const booking = (row.payload ?? {}) as NewBooking;
   switch (row.kind) {
     case "admin_alert":
       // Recipient is resolved from the SMTP settings, so to_email is empty.
-      await sendAdminAlert(booking);
-      return;
+      return (await sendAdminAlert(booking)).response;
     case "booking_received":
-      await sendBookingReceived(booking);
-      return;
+      return (await sendBookingReceived(booking)).response;
     case "quote":
-      await sendQuoteEmail({
+      return (await sendQuoteEmail({
         to: row.to_email,
         name: booking.names ?? "",
         bookingRef: booking.booking_ref ?? "",
         serviceName: booking.services ?? "",
         date: booking.date ?? "",
         price: Number(row.price ?? 0),
-      });
-      return;
+      })).response;
   }
 }
 
@@ -108,10 +105,11 @@ export async function drainOutbox(limit = 10): Promise<DrainResult> {
 
   for (const row of rows) {
     try {
-      await sendOne(row);
+      const response = await sendOne(row);
       const { error: doneErr } = await supabase.rpc("complete_email_outbox", {
         p_id: row.id,
         p_ok: true,
+        p_response: response,
       });
       if (doneErr) throw doneErr;
       result.sent += 1;

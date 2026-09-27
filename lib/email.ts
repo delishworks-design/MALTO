@@ -31,6 +31,13 @@ export type QuoteEmailInput = {
   notes?: string | null;
 };
 
+/** Deliberately permissive, but it rejects the shape that actually bit us once:
+ *  a reply_to typed as "nameagmail.com" with the @ missing, which is a real
+ *  (undeliverable) domain rather than an obviously malformed string. */
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+export const isValidEmail = (v: unknown): v is string =>
+  typeof v === "string" && EMAIL_RE.test(v.trim());
+
 /** Reads SMTP settings + the encrypted password using the service role. */
 export async function loadEmailConfig(): Promise<EmailConfig> {
   const admin = supabaseAdmin();
@@ -49,14 +56,31 @@ export async function loadEmailConfig(): Promise<EmailConfig> {
     password = decryptSecret(stored);
   }
 
+  // A malformed address here used to be honoured silently, which is how the
+  // booking alert ended up going to a domain that does not exist. Fall back to
+  // the authenticated account and complain loudly instead.
+  const smtpUser = String(settings.smtp_user ?? "").trim();
+  const clean = (raw: unknown, label: string): string => {
+    const value = String(raw ?? "").trim();
+    if (!value) return smtpUser;
+    if (!isValidEmail(value)) {
+      console.warn(
+        `[email] Settings → Email: ${label} is not a valid address (${JSON.stringify(value)}). ` +
+          `Using the SMTP username ${smtpUser} instead.`
+      );
+      return smtpUser;
+    }
+    return value;
+  };
+
   return {
     host: settings.smtp_host,
     port: Number(settings.smtp_port) || 465,
     secure: settings.smtp_secure !== false,
-    user: settings.smtp_user,
+    user: smtpUser,
     fromName: settings.from_name || "MALTO Cleaning Services",
-    fromEmail: settings.from_email,
-    replyTo: settings.reply_to,
+    fromEmail: clean(settings.from_email, "From email"),
+    replyTo: clean(settings.reply_to, "Reply-To"),
     password,
     hasPassword: password.length > 0,
   };
@@ -82,6 +106,9 @@ function transport(cfg: EmailConfig) {
   return nodemailer.createTransport(options);
 }
 
+/** What every sender hands back. `response` is the SMTP server's own reply. */
+export type SendResult = { to: string; response: string };
+
 export function fromHeader(cfg: EmailConfig): string {
   const addr = cfg.fromEmail || cfg.user;
   return `${cfg.fromName} <${addr}>`;
@@ -90,7 +117,7 @@ export function fromHeader(cfg: EmailConfig): string {
 export async function sendMail(
   cfg: EmailConfig,
   payload: { to: string; subject: string; html: string; text?: string; replyTo?: string }
-): Promise<{ messageId: string }> {
+): Promise<{ messageId: string; response: string; accepted: string[] }> {
   const info = await transport(cfg).sendMail({
     from: fromHeader(cfg),
     to: payload.to,
@@ -99,7 +126,14 @@ export async function sendMail(
     text: payload.text,
     replyTo: payload.replyTo || cfg.replyTo || undefined,
   });
-  return { messageId: String(info.messageId ?? "") };
+  // The provider's own reply is the only evidence we get that the message was
+  // accepted, so it is handed back and stored on the outbox row. Gmail accepts
+  // first and bounces later, which is why "sent" alone was never proof.
+  return {
+    messageId: String(info.messageId ?? ""),
+    response: String(info.response ?? ""),
+    accepted: (info.accepted ?? []).map((a) => String(a)),
+  };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -157,6 +191,19 @@ const esc = (v: unknown) =>
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
 
+/** Plain-text alternative to the HTML body.
+ *  Every send was HTML-only, and a message with no text/plain part is one of
+ *  the most reliable ways to get filtered into spam, so all four templates now
+ *  ship both parts. */
+const textVersion = (heading: string, lines: string[], link?: { href: string; label: string }) =>
+  ["MALTO CLEANING SERVICES", "", heading, "", ...lines, "",
+   ...(link ? [`${link.label}: ${link.href}`] : []),
+   "",
+   "Reply to this email if anything about your booking changes."].join("\n");
+
+/** Same key/value pairs as rows(), flattened for the plain-text part. */
+const textRows = (pairs: [string, string][]) => pairs.map(([k, v]) => `${k}: ${v || "—"}`);
+
 const fmtDate = (s?: string | null) => {
   if (!s) return "";
   const d = new Date(`${String(s).slice(0, 10)}T00:00:00`);
@@ -191,42 +238,62 @@ export type NewBooking = {
 };
 
 /** Email 1 of 2 — fired by the Supabase webhook when a booking is created. */
-export async function sendAdminAlert(booking: NewBooking, toOverride?: string): Promise<{ to: string }> {
+export async function sendAdminAlert(booking: NewBooking, toOverride?: string): Promise<SendResult> {
   const cfg = await loadEmailConfig();
   const to = toOverride || cfg.replyTo || cfg.fromEmail || cfg.user;
   if (!to) throw new Error("No recipient configured for the admin alert (set Reply-To in Settings).");
 
   const subject = `New booking request${booking.booking_ref ? ` · ${booking.booking_ref}` : ""}`;
+  // Built once and rendered twice: escaped for HTML, raw for the text part.
+  const fields: [string, string][] = [
+    ["Request ID", String(booking.booking_ref ?? "")],
+    ["Customer", String(booking.names ?? "")],
+    ["Email", String(booking.email ?? "")],
+    ["Phone", String(booking.phone ?? "")],
+    ["Service", String(booking.services ?? "")],
+    ["Preferred date", fmtDate(booking.date)],
+    ["Preferred time", String(booking.time ?? "")],
+    ["Address", String(booking.adress ?? "")],
+    ["City / Province", [booking.city].filter(Boolean).join(", ")],
+    ["Property", String(booking.property ?? "")],
+    ["Customer notes", String(booking.notes ?? "")],
+  ];
+  const dash = `${siteUrl()}/admin`;
   const html = shell(
     "New booking request",
     `<p>A new request just arrived on the website.</p>
-     ${rows([
-       ["Request ID", esc(booking.booking_ref)],
-       ["Customer", esc(booking.names)],
-       ["Email", esc(booking.email)],
-       ["Phone", esc(booking.phone)],
-       ["Service", esc(booking.services)],
-       ["Preferred date", esc(fmtDate(booking.date))],
-       ["Preferred time", esc(booking.time)],
-       ["Address", esc(booking.adress)],
-       ["City / Province", esc([booking.city].filter(Boolean).join(", "))],
-       ["Property", esc(booking.property)],
-       ["Customer notes", esc(booking.notes)],
-     ])}
+     ${rows(fields.map(([k, v]) => [k, esc(v)] as [string, string]))}
      <p style="font-size:14px;">Review it in the dashboard, set the final price and send the quote to the customer.</p>
-     ${btn(`${siteUrl()}/admin`, "Open dashboard")}`
+     ${btn(dash, "Open dashboard")}`
+  );
+  const text = textVersion(
+    "New booking request",
+    [
+      "A new request just arrived on the website.",
+      "",
+      ...textRows(fields),
+      "",
+      "Review it in the dashboard, set the final price and send the quote to the customer.",
+    ],
+    { href: dash, label: "Open dashboard" }
   );
 
-  await sendMail(cfg, { to, subject, html });
-  return { to };
+  const sent = await sendMail(cfg, { to, subject, html, text });
+  return { to, response: sent.response };
 }
 
 /** Email 2 of 2 — final price + confirmation, sent by the admin from the dashboard. */
-export async function sendQuoteEmail(input: QuoteEmailInput): Promise<{ to: string }> {
+export async function sendQuoteEmail(input: QuoteEmailInput): Promise<SendResult> {
   const cfg = await loadEmailConfig();
   if (!input.to) throw new Error("This booking has no email address, so the quote cannot be sent.");
 
   const subject = `Your MALTO quote is ready${input.bookingRef ? ` · ${input.bookingRef}` : ""}`;
+  const fields: [string, string][] = [
+    ["Request ID", String(input.bookingRef ?? "")],
+    ["Service", String(input.serviceName ?? "")],
+    ["Scheduled date", fmtDate(input.date)],
+  ];
+  const book = `${siteUrl()}/book`;
   const html = shell(
     "Your final price",
     `<p>Hi ${esc(input.name || "there")},</p>
@@ -239,66 +306,104 @@ export async function sendQuoteEmail(input: QuoteEmailInput): Promise<{ to: stri
          </td>
        </tr>
      </table>
-     ${rows([
-       ["Request ID", esc(input.bookingRef)],
-       ["Service", esc(input.serviceName)],
-       ["Scheduled date", esc(fmtDate(input.date))],
-     ])}
+     ${rows(fields.map(([k, v]) => [k, esc(v)] as [string, string]))}
      <p style="font-size:14px;">Your booking is now confirmed. If anything about the job changes, just reply to this email and we will re-check the scope.</p>
      ${input.notes ? `<p style="font-size:14px;"><strong>A note from the team:</strong> ${esc(input.notes)}</p>` : ""}
-     ${btn(`${siteUrl()}/book`, "Book another cleaning")}`
+     ${btn(book, "Book another cleaning")}`
+  );
+  const text = textVersion(
+    "Your final price",
+    [
+      `Hi ${input.name || "there"},`,
+      "",
+      "Thank you for booking with MALTO. We have reviewed your request and this is your final quote:",
+      "",
+      `FINAL PRICE: ${money(input.price)}`,
+      "",
+      ...textRows(fields),
+      "",
+      "Your booking is now confirmed. If anything about the job changes, just reply to this email and we will re-check the scope.",
+      ...(input.notes ? ["", `A note from the team: ${input.notes}`] : []),
+    ],
+    { href: book, label: "Book another cleaning" }
   );
 
-  await sendMail(cfg, { to: input.to, subject, html });
-  return { to: input.to };
+  const sent = await sendMail(cfg, { to: input.to, subject, html, text, replyTo: cfg.replyTo });
+  return { to: input.to, response: sent.response };
 }
-
 /** Sent to the customer the moment a booking lands, so they are not left
  *  guessing. Deliberately carries no price and no rates: the final quote is a
  *  separate email the admin sends after review. */
-export async function sendBookingReceived(booking: NewBooking): Promise<{ to: string }> {
+export async function sendBookingReceived(booking: NewBooking): Promise<SendResult> {
   const cfg = await loadEmailConfig();
   const to = (booking.email ?? "").trim();
   if (!to) throw new Error("This booking has no email address, so no acknowledgement was sent.");
 
   const subject = `We received your booking${booking.booking_ref ? ` · ${booking.booking_ref}` : ""}`;
+  const fields: [string, string][] = [
+    ["Request ID", String(booking.booking_ref ?? "")],
+    ["Service", String(booking.services ?? "")],
+    ["Preferred date", fmtDate(booking.date)],
+    ["Preferred time", String(booking.time ?? "")],
+    ["Address", String(booking.adress ?? "")],
+    ["City / Province", [booking.city].filter(Boolean).join(", ")],
+    ["Property", String(booking.property ?? "")],
+  ];
+  const book = `${siteUrl()}/book`;
   const html = shell(
     "We received your booking",
     `<p>Hi ${esc(booking.names || "there")},</p>
      <p>Thank you for booking with MALTO. We have your request and will review the details before confirming the price.</p>
-     ${rows([
-       ["Request ID", esc(booking.booking_ref)],
-       ["Service", esc(booking.services)],
-       ["Preferred date", esc(fmtDate(booking.date))],
-       ["Preferred time", esc(booking.time)],
-       ["Address", esc(booking.adress)],
-       ["City / Province", esc([booking.city].filter(Boolean).join(", "))],
-       ["Property", esc(booking.property)],
-     ])}
+     ${rows(fields.map(([k, v]) => [k, esc(v)] as [string, string]))}
      <p style="font-size:14px;">We will email you again shortly with your final price. Nothing to pay yet.</p>
-     ${btn(`${siteUrl()}/book`, "Book another cleaning")}`
+     ${btn(book, "Book another cleaning")}`
+  );
+  const text = textVersion(
+    "We received your booking",
+    [
+      `Hi ${booking.names || "there"},`,
+      "",
+      "Thank you for booking with MALTO. We have your request and will review the details before confirming the price.",
+      "",
+      ...textRows(fields),
+      "",
+      "We will email you again shortly with your final price. Nothing to pay yet.",
+    ],
+    { href: book, label: "Book another cleaning" }
   );
 
-  await sendMail(cfg, { to, subject, html });
-  return { to };
+  const sent = await sendMail(cfg, { to, subject, html, text, replyTo: cfg.replyTo });
+  return { to, response: sent.response };
 }
 
 /** Small smoke test used from Settings → Email. */
-export async function sendTestEmail(to: string): Promise<{ to: string }> {
+export async function sendTestEmail(to: string): Promise<SendResult> {
   const cfg = await loadEmailConfig();
   const subject = "MALTO email test — this is working";
+  const fields: [string, string][] = [
+    ["SMTP host", cfg.host],
+    ["Port", `${cfg.port}${cfg.secure ? " (SSL)" : ""}`],
+    ["Username", cfg.user],
+    ["From", fromHeader(cfg)],
+    ["Reply-To", cfg.replyTo],
+  ];
   const html = shell(
     "Email is configured",
     `<p>This is a test message from the MALTO admin dashboard.</p>
-     ${rows([
-       ["SMTP host", esc(cfg.host)],
-       ["Port", esc(`${cfg.port}${cfg.secure ? " (SSL)" : ""}`)],
-       ["Username", esc(cfg.user)],
-       ["From", esc(fromHeader(cfg))],
-       ["Reply-To", esc(cfg.replyTo)],
-     ])}
-     <p style="font-size:14px;">If you are reading this, booking confirmations and quotes will send correctly.</p>`
+     ${rows(fields.map(([k, v]) => [k, esc(v)] as [string, string]))}
+     <p style="font-size:14px;">If you are reading this, booking confirmations and quotes will send correctly. If this landed in spam, tell the developer — that is the signal we need.</p>`
   );
-  await sendMail(cfg, { to, subject, html });
-  return { to };
+  const text = textVersion(
+    "Email is configured",
+    [
+      "This is a test message from the MALTO admin dashboard.",
+      "",
+      ...textRows(fields),
+      "",
+      "If you are reading this, booking confirmations and quotes will send correctly.",
+      "If this landed in spam, tell the developer — that is the signal we need.",
+    ]
+  );
+  const sent = await sendMail(cfg, { to, subject, html, text, replyTo: cfg.replyTo });
+  return { to, response: sent.response };
 }

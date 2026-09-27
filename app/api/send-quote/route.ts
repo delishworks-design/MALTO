@@ -1,6 +1,7 @@
 import { requireAdmin, readJson } from "@/lib/admin-auth";
 import { loadEmailConfig } from "@/lib/email";
 import { enqueueEmail, drainOutbox } from "@/lib/email-outbox";
+import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export const runtime = "nodejs";
 
@@ -23,6 +24,7 @@ export async function POST(req: Request) {
   const body = readJson(await req.json().catch(() => null));
   const bookingId = String(body.booking_id ?? "").trim();
   const price = Number(body.price);
+  const override = body.override === true;
 
   if (!bookingId) {
     return Response.json({ ok: false, error: "booking_id is required." }, { status: 400 });
@@ -57,8 +59,62 @@ export async function POST(req: Request) {
     return Response.json({ ok: false, error: String(err?.message ?? err) }, { status: 502 });
   }
 
-  // One row per click, so a retry after a failure cannot send a second copy
-  // of a quote that already went out.
+  const admin = supabaseAdmin();
+
+  // One quote on its way: pending, actively sending, or failed but still within
+  // its automatic retry budget. Queueing another would put two copies of the
+  // same price in front of the customer once SMTP recovers.
+  const { data: open } = await admin
+    .from("email_outbox")
+    .select("id, status, attempts")
+    .eq("booking_id", bookingId)
+    .eq("kind", "quote")
+    .or("status.in.(pending,sending),and(status.eq.failed,attempts.lt.5))")
+    .limit(1)
+    .maybeSingle();
+  if (open) {
+    const retrying = open.status === "failed";
+    return Response.json(
+      {
+        ok: false,
+        inFlight: true,
+        error: retrying
+          ? `A quote for this booking failed and is still being retried automatically (attempt ${open.attempts} of 5). Use RETRY ALL NOW under Settings → Email to send it immediately, or wait for the next retry.`
+          : "A quote for this booking is already queued and waiting to send. Give it a moment before sending another.",
+      },
+      { status: 409 }
+    );
+  }
+
+  // Already delivered. Clicking again is usually panic after a missing email,
+  // not a real second quote, so it has to be asked for explicitly.
+  if (!override) {
+    const { data: delivered } = await admin
+      .from("email_outbox")
+      .select("id, sent_at, to_email")
+      .eq("booking_id", bookingId)
+      .eq("kind", "quote")
+      .eq("status", "sent")
+      .order("sent_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (delivered) {
+      const when = delivered.sent_at
+        ? new Date(delivered.sent_at).toLocaleString("en-PH")
+        : "earlier";
+      return Response.json(
+        {
+          ok: false,
+          alreadySent: true,
+          sentAt: delivered.sent_at,
+          error: `A quote was already sent to ${delivered.to_email} on ${when}. Use SEND AGAIN if you really want a second copy.`,
+        },
+        { status: 409 }
+      );
+    }
+  }
+
+  // One row per click, so each attempt is auditable on its own.
   let rowId: string | null;
   try {
     rowId = await enqueueEmail({

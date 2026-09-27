@@ -52,9 +52,10 @@ h3 { font:normal 25px Georgia,serif; margin:0 0 10px; }
 .progress { display:flex; gap:6px; margin-bottom:35px; }
 .progress span { height:3px; flex:1; background:var(--border); }
 .progress span.active { background:var(--sage); }
-/* minmax(0,1fr) lets a track shrink below its content's min-content width.
-   Without the 0 floor a wide <input type="date"> sizes the whole track and
-   pushes the neighbouring column into it. */
+/* minmax(0,1fr) stops a wide track from forcing the grid wider than its
+   container. It does not help with <input type="date"> on iOS Safari, which
+   sizes the widget by its own content and paints it past the track; those
+   fields are kept in single-column .form-grids instead. */
 .form-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; }
 .field { display:flex; flex-direction:column; gap:8px; min-width:0; }
 .field.full { grid-column:1/-1; }
@@ -87,6 +88,13 @@ th { color:var(--graygreen); font-weight:normal; }
 @media(max-width:520px) {
  .container {width:min(100% - 28px,1120px);} .grid4,.price-grid,.steps,.kpis,.choice-grid {grid-template-columns:minmax(0,1fr);}
  .booking-shell {padding:22px;} h1 {font-size:52px;} .hero-grid {grid-template-columns:1fr;} .nav .btn {display:none;}
+}
+/* Wide screens only, so the 1-column phone/tablet layout above is untouched.
+   auto-fit drops to a single column on its own once a track would fall below
+   the floor, instead of relying on a breakpoint guess. The floor is generous
+   because iOS Safari draws a date input wider than its track. */
+@media(min-width:801px) {
+ .booking-shell .form-grid { grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); }
 }
 
 /* --- Admin suite: tabs, filters, toolbar --- */

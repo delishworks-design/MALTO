@@ -105,10 +105,16 @@ grant execute on function public.claim_email_outbox(int) to service_role;
 -- booking can never end up Confirmed without a delivered quote, and cannot be
 -- delivered-but-unrecorded.
 -- ---------------------------------------------------------------------------
+-- Dropped first: adding p_response below would otherwise leave the old
+-- three-argument version in place as a separate overload, and PostgREST cannot
+-- resolve an ambiguous rpc() call.
+drop function if exists public.complete_email_outbox(uuid, boolean, text);
+
 create or replace function public.complete_email_outbox(
   p_id uuid,
   p_ok boolean,
-  p_error text default null
+  p_error text default null,
+  p_response text default null
 )
 returns void
 language plpgsql
@@ -120,7 +126,8 @@ declare
 begin
   if p_ok then
     update public.email_outbox
-       set status = 'sent', sent_at = now(), last_error = null
+       set status = 'sent', sent_at = now(), last_error = null,
+           provider_response = left(coalesce(p_response, ''), 300)
      where id = p_id
     returning * into v_row;
 
@@ -142,8 +149,8 @@ begin
 end;
 $$;
 
-revoke all on function public.complete_email_outbox(uuid, boolean, text) from public, anon, authenticated;
-grant execute on function public.complete_email_outbox(uuid, boolean, text) to service_role;
+revoke all on function public.complete_email_outbox(uuid, boolean, text, text) from public, anon, authenticated;
+grant execute on function public.complete_email_outbox(uuid, boolean, text, text) to service_role;
 
 -- ---------------------------------------------------------------------------
 -- Enqueue on booking

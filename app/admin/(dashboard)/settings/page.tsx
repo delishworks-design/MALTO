@@ -3,6 +3,10 @@ import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/utils/supabase/client";
 
 type FAQ={q:string;a:string};
+
+/** Kept in step with isValidEmail() in lib/email.ts, so the form rejects the
+ *  same shapes the server would have to fall back on. */
+const EMAIL_RE=/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 type Field={key:string;label:string;type?:"text"|"textarea"};
 
 const GROUPS:{title:string;hint:string;fields:Field[]}[]=[
@@ -56,35 +60,34 @@ export default function SettingsAdmin(){
   const [hasPass,setHasPass]=useState(false);
   const [newPass,setNewPass]=useState("");
 
-  // Undelivered emails from the outbox, so a booking notification that could
-  // not be sent is visible here instead of disappearing.
-  const [failedMails,setFailedMails]=useState<{id:string;kind:string;to_email:string;attempts:number;last_error:string|null;created_at:string}[]>([]);
+  // Outbox history so a delivered message can be told apart from one that
+  // never arrived. Failures alone were not enough to debug a missing email.
+  const [mailLog,setMailLog]=useState<{id:string;kind:string;to_email:string;status:string;attempts:number;last_error:string|null;provider_response:string|null;created_at:string;sent_at:string|null}[]>([]);
   const [retryingMail,setRetryingMail]=useState(false);
 
-  const loadFailedMail=useCallback(async()=>{
+  const loadMailLog=useCallback(async()=>{
     try{
       const supabase=createClient();
       const {data,error:err}=await supabase
         .from("email_outbox")
-        .select("id,kind,to_email,attempts,last_error,created_at")
-        .eq("status","failed")
+        .select("id,kind,to_email,status,attempts,last_error,provider_response,created_at,sent_at")
         .order("created_at",{ascending:false})
         .limit(20);
       if(err) throw err;
-      setFailedMails((data as any[])||[]);
+      setMailLog((data as any[])||[]);
     }catch{
-      setFailedMails([]);
+      setMailLog([]);
     }
   },[]);
 
-  useEffect(()=>{ loadFailedMail(); },[loadFailedMail]);
+  useEffect(()=>{ loadMailLog(); },[loadMailLog]);
 
   const retryFailedMail=async()=>{
     if(retryingMail) return;
     setRetryingMail(true);
     try{
       await fetch("/api/admin/retry-emails",{method:"POST"});
-      await loadFailedMail();
+      await loadMailLog();
     }finally{
       setRetryingMail(false);
     }
@@ -155,16 +158,29 @@ export default function SettingsAdmin(){
     if(busy) return;
     setBusy("mail"); setError(null);
     try{
+      // Catch a mistyped address here rather than discovering it later as a
+      // booking alert that quietly went nowhere. A missing @ still forms a real
+      // domain name, so this is exactly the case that is easy to miss by eye.
+      const smtpUser=email.smtp_user.trim();
+      const fromEmail=email.from_email.trim();
+      const replyTo=email.reply_to.trim();
+      const bad=(label:string,value:string)=>{
+        throw new Error(`${label} is not a valid email address: "${value}". It must look like name@gmail.com — check for a missing @ or a typo in the domain.`);
+      };
+      if(smtpUser&&!EMAIL_RE.test(smtpUser)) bad("SMTP username",smtpUser);
+      if(fromEmail&&!EMAIL_RE.test(fromEmail)) bad("From email",fromEmail);
+      if(replyTo&&!EMAIL_RE.test(replyTo)) bad("Reply-To",replyTo);
+
       const supabase=createClient();
       const {error:err}=await supabase.from("email_settings").upsert({
         id:1,
         smtp_host:email.smtp_host.trim(),
         smtp_port:Number(email.smtp_port)||465,
         smtp_secure:email.smtp_secure,
-        smtp_user:email.smtp_user.trim(),
+        smtp_user:smtpUser,
         from_name:email.from_name.trim(),
-        from_email:email.from_email.trim(),
-        reply_to:email.reply_to.trim()
+        from_email:fromEmail,
+        reply_to:replyTo
       },{onConflict:"id"});
       if(err) throw err;
       flash("SMTP settings saved.");
@@ -275,30 +291,57 @@ export default function SettingsAdmin(){
     {/* -------- EMAIL DELIVERY -------- */}
     <div className="panel">
       <div className="panel-head"><strong>Email delivery</strong><span className="small muted">Naiire-record ang bawat email bago ipadala, at sinusubukan muli hanggang matagumpay</span></div>
-      {failedMails.length===0
-        ? <p className="small muted" style={{margin:0}}>Walang email na hindi naipadala. Lahat ay na-send.</p>
-        : <>
-          <p className="small" style={{margin:"0 0 14px"}}>
-            {failedMails.length} email{failedMails.length===1?"":"s"} na hindi naipadala. Automatic retry pa rin ang tumatakbo bawat 5 minuto.
-          </p>
-          <div className="table" style={{marginTop:0}}>
-            <table>
-              <thead><tr><th>Uri</th><th>Type</th><th>Saan</th><th>Attempts</th><th>Error</th><th>Nailan</th></tr></thead>
-              <tbody>{failedMails.map(m=>
-                <tr key={m.id}>
-                  <td className="small">{m.created_at?new Date(m.created_at).toLocaleString("en-PH"):"—"}</td>
-                  <td className="small">{m.kind}</td>
-                  <td className="small">{m.to_email||"(admin inbox)"}</td>
-                  <td className="small">{m.attempts}/5</td>
-                  <td className="small" style={{color:"#8A2C1D"}}>{m.last_error||"—"}</td>
-                </tr>)}
-              </tbody>
-            </table>
-          </div>
-          <button className="btn secondary" style={{marginTop:14,minHeight:42}} disabled={retryingMail} onClick={retryFailedMail}>
-            {retryingMail?"RETRYING…":"RETRY ALL NOW"}
-          </button>
-        </>}
+
+      {(()=>{
+        const fromDiffers=email.from_email.trim()&&email.smtp_user.trim()
+          &&email.from_email.trim().toLowerCase()!==email.smtp_user.trim().toLowerCase();
+        const failed=mailLog.filter(m=>m.status==="failed");
+        const shown=mailLog.slice(0,12);
+        return <>
+          {fromDiffers&&
+            <div className="notice" style={{background:"#FDF6E4",color:"#6B4E14",border:"1px solid #E0B44A"}}>
+              <strong>Heads up:</strong> the From address is not the same as the SMTP username. Gmail only guarantees inbox
+              delivery when it authenticates as the address it is sending from — if the From is a different account,
+              messages can be filtered into spam. This is fine if the From is an alias you have verified under
+              “Send mail as” on the SMTP account.
+            </div>}
+          {failed.length>0&&
+            <p className="small" style={{margin:"0 0 14px"}}>
+              {failed.length} email{failed.length===1?"":"s"} could not be sent. Automatic retry pa rin ang tumatakbo bawat 5 minuto.
+            </p>}
+          {shown.length===0
+            ? <p className="small muted" style={{margin:0}}>Wala pang email na ipinadala.</p>
+            : <>
+              <p className="small muted" style={{margin:"0 0 12px"}}>
+                Pinakabagong {shown.length}. Ang “accepted” ay sinasabi lang ng Gmail na natanggap nito — hindi garantisadong nakarating sa inbox.
+              </p>
+              <div className="table" style={{marginTop:0}}>
+                <table>
+                  <thead><tr><th>Nailan</th><th>Type</th><th>Saan</th><th>Status</th><th>Attempts</th><th>Sinabi ng SMTP</th></tr></thead>
+                  <tbody>{shown.map(m=>{
+                    const statusColor=m.status==="failed"?"#8A2C1D":m.status==="sent"?"#3F6B4F":undefined;
+                    return (
+                    <tr key={m.id}>
+                      <td className="small">{(m.sent_at||m.created_at||"").replace("T"," ").slice(0,16)}</td>
+                      <td className="small">{m.kind}</td>
+                      <td className="small">{m.to_email||"(admin inbox)"}</td>
+                      <td className="small" style={{color:statusColor}}>
+                        {m.status}{m.status==="failed"&&m.last_error?` — ${m.last_error}`:""}
+                      </td>
+                      <td className="small">{m.attempts}/5</td>
+                      <td className="small" style={{color:"#626A63"}}>{m.provider_response||"—"}</td>
+                    </tr>);
+                  })}
+                  </tbody>
+                </table>
+              </div>
+              {failed.length>0&&
+                <button className="btn secondary" style={{marginTop:14,minHeight:42}} disabled={retryingMail} onClick={retryFailedMail}>
+                  {retryingMail?"RETRYING…":"RETRY ALL NOW"}
+                </button>}
+            </>}
+        </>;
+      })()}
     </div>
 
     {/* -------- WEBSITE CONFIGURATION -------- */}
