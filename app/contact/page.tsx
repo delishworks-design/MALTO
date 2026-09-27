@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getSiteData, REVALIDATE } from "@/lib/site";
+import { SiteHeader } from "@/components/SiteChrome";
 
 export const revalidate = REVALIDATE;
 
@@ -24,10 +25,7 @@ export default async function Contact() {
   ].filter(Boolean) as { label: string; href: string; text: string }[];
 
   return <main>
-    <header className="header"><div className="container nav">
-      <Link href="/" className="logo">MALTO<small>CLEANING SERVICES</small></Link>
-      <Link className="btn" href="/book">{d.s("cta_primary")}</Link>
-    </div></header>
+    <SiteHeader ctaLabel={d.s("cta_primary")} />
     <section className="section"><div className="container">
       <div className="eyebrow">CONTACT</div>
       <h1>{d.s("contact_heading")}</h1>

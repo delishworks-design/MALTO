@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getSiteData, formatPrice, REVALIDATE } from "@/lib/site";
+import { SiteHeader } from "@/components/SiteChrome";
 
 export const revalidate = REVALIDATE;
 
@@ -11,10 +12,7 @@ export async function generateMetadata() {
 export default async function Pricing() {
   const d = await getSiteData();
   return <main>
-    <header className="header"><div className="container nav">
-      <Link href="/" className="logo">MALTO<small>CLEANING SERVICES</small></Link>
-      <Link className="btn" href="/book">{d.s("cta_estimate")}</Link>
-    </div></header>
+    <SiteHeader ctaLabel={d.s("cta_estimate")} />
     <section className="section"><div className="container">
       <div className="eyebrow">PRICING</div>
       <h1>{d.s("pricing_heading")}</h1>

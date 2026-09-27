@@ -636,14 +636,14 @@ export default function Bookings(){
                         :<span className="text">No photo uploaded.</span>}
                     </div>
                     <div className="field full">
-                      <label>Internal note (admin only — hindi nakikita ng customer)</label>
+                      <label>Internal note (admin only — the customer does not see this)</label>
                       <textarea placeholder="Hal. Natawagan na, malapit ma-confirm…"
                         value={noteDraft[b.id]??(b.admin_notes??"")}
                         onChange={e=>setNoteDraft(p=>({...p,[b.id]:e.target.value}))}/>
                       <div style={{display:"flex",gap:8,marginTop:8}}>
                         <button className="btn" disabled={busy===b.id} style={{minHeight:40,opacity:busy===b.id?.6:1}}
                           onClick={()=>saveNote(b.id)}>SAVE NOTE</button>
-                        <span className="small muted">{b.admin_notes?"May na-save na note.":"Walang note pa."}</span>
+                        <span className="small muted">{b.admin_notes?"A note has been saved.":"No note yet."}</span>
                       </div>
                     </div>
                   </div>

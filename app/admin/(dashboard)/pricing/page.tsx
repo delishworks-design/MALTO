@@ -131,7 +131,7 @@ export default function PricingAdmin(){
     try{
       const supabase=createClient();
       const amount=num(card.amount);
-      if(!card.label.trim()) throw new Error("Kailangan ng label.");
+      if(!card.label.trim()) throw new Error("A label is required.");
       if(Number.isNaN(amount)) throw new Error("Invalid amount.");
       const order=num(card.sort_order);
       if(card.isNew){
@@ -184,7 +184,7 @@ export default function PricingAdmin(){
         <div className="field full">
           <label>Service</label>
           <select value={svcId} onChange={e=>setSvcId(e.target.value)}>
-            {services.length===0&&<option value="">Walang service pa</option>}
+            {services.length===0&&<option value="">No services yet</option>}
             {services.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
         </div>

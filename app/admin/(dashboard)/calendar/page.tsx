@@ -109,12 +109,12 @@ export default function Calendar(){
         <div className="eyebrow">SELECTED DAY</div>
         <h2 style={{marginTop:8}}>{fmtDate(selected)}</h2>
       </div>
-      <p className="small muted">{dayRows.length?`${dayRows.length} booking${dayRows.length===1?"":"s"}`:"Walang appointment sa araw na ito."}</p>
+      <p className="small muted">{dayRows.length?`${dayRows.length} booking${dayRows.length===1?"":"s"}`:"No appointment on this day."}</p>
     </div>
 
     <div className="table">
       {loading?<p className="text" style={{padding:20}}>Loading…</p>
-      :dayRows.length===0?<p className="text" style={{padding:20}}>Walang booking sa petsong ito. Pumili ng ibang araw sa kalendaryo.</p>
+      :dayRows.length===0?<p className="text" style={{padding:20}}>No bookings this week. Pick another day in the calendar.</p>
       :<table>
         <thead><tr><th>Request ID</th><th>Customer</th><th>Time</th><th>Service</th><th>City</th><th>Status</th></tr></thead>
         <tbody>{dayRows.map(b=><tr key={b.id}>

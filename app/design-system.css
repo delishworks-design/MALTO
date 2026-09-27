@@ -1,0 +1,187 @@
+/* ------------------------------------------------------------------ *
+ * Design tokens
+ *
+ * The site grew one class at a time and ended up with 125 of them and no
+ * system: a font size that jumped 52 / 36 / 25 / 18 / 15 / 13 / 12 / 11, and
+ * spacing picked as 18, 22, 25, 26px. Small inconsistencies everywhere.
+ *
+ * These are the scales everything else is built from. A new component picks a
+ * step rather than inventing a value, which is what makes a page set look
+ * deliberate.
+ * ------------------------------------------------------------------ */
+:root {
+  /* Colour. Deeper ink for contrast, lighter border so it recedes. */
+  --ivory:      #FBFAF7;
+  --white:      #FFFFFF;
+  --charcoal:   #14171A;
+  --graygreen:  #5F6862;
+  --sage:       #3F6B4F;
+  --softsage:   #E8F0EA;
+  --border:     #E8E6E0;
+  --border-firm:#D4D2CB;
+  --danger:     #8A2C1D;
+  --danger-bg:  #FBE9E7;
+  --warn-bg:    #FDF6E4;
+  --warn-line:  #E0B44A;
+  --warn-ink:   #6B4E14;
+
+  /* Type. One scale, used everywhere. */
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-display: Georgia, "Times New Roman", serif;
+  --fs-display: clamp(40px, 6vw, 76px);
+  --fs-h1:      clamp(32px, 4.4vw, 56px);
+  --fs-h2:      clamp(26px, 3.2vw, 40px);
+  --fs-h3:      21px;
+  --fs-body:    17px;
+  --fs-small:   13px;
+  --fs-label:   11px;
+
+  /* 4px base. */
+  --s1: 4px;  --s2: 8px;  --s3: 12px; --s4: 16px;
+  --s5: 24px; --s6: 32px; --s7: 48px; --s8: 64px;
+  --s9: 96px; --s10: 128px;
+
+  --radius: 14px;
+  --radius-sm: 8px;
+  --shell: 1120px;
+  --ease: cubic-bezier(.22,.61,.36,1);
+}
+
+/* ------------------------------------------------------------------ *
+ * Base
+ * ------------------------------------------------------------------ */
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--ivory);
+  color: var(--charcoal);
+  font-family: var(--font-body);
+  font-size: var(--fs-body);
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; text-decoration: none; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+img { max-width: 100%; display: block; }
+
+h1 { font: 400 var(--fs-h1)/1.05 var(--font-display); letter-spacing: -.02em; margin: var(--s5) 0 var(--s5); max-width: 22ch; }
+h2 { font: 400 var(--fs-h2)/1.12 var(--font-display); letter-spacing: -.015em; margin: 0 0 var(--s4); }
+h3 { font: 400 var(--fs-h3)/1.3 var(--font-display); margin: 0 0 var(--s2); }
+
+/* The small uppercase label is the most recognisable thing the site already
+   had, so it is kept and tightened rather than replaced. */
+.eyebrow, .footer-label, label {
+  font-size: var(--fs-label);
+  text-transform: uppercase;
+  letter-spacing: .14em;
+  color: var(--sage);
+  font-weight: 500;
+}
+.lead { font-size: 18px; line-height: 1.7; color: var(--graygreen); max-width: 62ch; }
+.text, .card p, .small { color: var(--graygreen); }
+.small { font-size: var(--fs-small); }
+.muted { color: var(--graygreen); }
+.serif { font-family: var(--font-display); }
+.container { width: min(var(--shell), calc(100% - 40px)); margin: auto; }
+
+/* ------------------------------------------------------------------ *
+ * Focus
+ *
+ * There was none at all, which makes the site unusable by keyboard. Every
+ * interactive element gets a visible ring that only appears for keyboard use,
+ * so it does not show up as a smudge on mouse clicks.
+ * ------------------------------------------------------------------ */
+:focus-visible {
+  outline: 2px solid var(--sage);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+:focus:not(:focus-visible) { outline: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Header, footer, navigation
+ * ------------------------------------------------------------------ */
+.header {
+  position: sticky; top: 0; z-index: 20;
+  background: rgba(251,250,247,.92);
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(10px);
+}
+.nav { min-height: 76px; display: flex; align-items: center; justify-content: space-between; gap: var(--s5); }
+.logo { font-family: var(--font-display); letter-spacing: .14em; font-size: 22px; line-height: 1.1; }
+.logo small { display: block; font-family: var(--font-body); letter-spacing: .22em; font-size: 8px; margin-top: 5px; color: var(--graygreen); }
+.navlinks { display: flex; gap: var(--s5); color: var(--graygreen); font-size: 14px; }
+.navlinks a { position: relative; padding: var(--s1) 0; }
+.navlinks a::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1px;
+  background: currentColor; transform: scaleX(0); transform-origin: left;
+  transition: transform 180ms var(--ease);
+}
+.navlinks a:hover { color: var(--charcoal); }
+.navlinks a:hover::after { transform: scaleX(1); }
+
+.footer { border-top: 1px solid var(--border); background: var(--white); margin-top: var(--s9); }
+.footer-grid {
+  display: grid; grid-template-columns: 1.6fr 1fr 1fr 1fr; gap: var(--s6);
+  padding: var(--s8) 0 var(--s6);
+}
+.footer-label { margin-bottom: var(--s3); }
+.footer-links { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s2); font-size: var(--fs-small); color: var(--graygreen); }
+.footer-links a:hover { color: var(--charcoal); }
+.footer-base { display: flex; justify-content: space-between; gap: var(--s4); padding: var(--s4) 0 var(--s6); border-top: 1px solid var(--border); flex-wrap: wrap; }
+
+/* ------------------------------------------------------------------ *
+ * Buttons and controls
+ * ------------------------------------------------------------------ */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: 46px; padding: 0 var(--s5);
+  border: 1px solid var(--charcoal); background: var(--charcoal); color: #fff;
+  letter-spacing: .06em; font-size: 12px; text-transform: uppercase; font-weight: 500;
+  transition: background 180ms var(--ease), color 180ms var(--ease), border-color 180ms var(--ease);
+}
+.btn:hover { background: var(--sage); border-color: var(--sage); }
+.btn.secondary { background: transparent; color: var(--charcoal); }
+.btn.secondary:hover { background: var(--charcoal); color: #fff; }
+.btn:disabled { opacity: .55; cursor: not-allowed; }
+
+input, select, textarea {
+  width: 100%; min-width: 0;
+  border: 1px solid var(--border-firm); background: var(--white);
+  padding: 13px 14px; color: var(--charcoal);
+  border-radius: var(--radius-sm);
+  transition: border-color 180ms var(--ease);
+}
+input:hover, select:hover, textarea:hover { border-color: var(--graygreen); }
+input:focus, select:focus, textarea:focus { border-color: var(--sage); }
+textarea { min-height: 110px; resize: vertical; }
+
+.linkbtn {
+  background: none; border: 0; padding: 0; color: var(--sage);
+  text-decoration: underline; font-family: inherit; font-size: inherit; cursor: pointer;
+}
+.linkbtn:hover { color: var(--charcoal); }
+
+.notice {
+  padding: var(--s4); background: var(--softsage); color: var(--charcoal);
+  line-height: 1.6; margin: var(--s5) 0; border-radius: var(--radius-sm);
+}
+.badge {
+  display: inline-block; border: 1px solid var(--border-firm); background: var(--ivory);
+  color: var(--graygreen); padding: 3px 9px; font-size: var(--fs-label);
+  letter-spacing: .1em; text-transform: uppercase; border-radius: 999px;
+}
+.badge.on { background: var(--softsage); color: var(--sage); border-color: #C6DCCC; }
+.badge.warn { background: var(--warn-bg); color: var(--warn-ink); border-color: var(--warn-line); }

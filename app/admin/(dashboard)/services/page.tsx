@@ -54,7 +54,7 @@ export default function ServicesAdmin(){
     try{
       const supabase=createClient();
       const hours=Number(row.hours); const cleaners=Number(row.cleaners);
-      if(!row.name.trim()) throw new Error("Kailangan ng service name.");
+      if(!row.name.trim()) throw new Error("A service name is required.");
       if(Number.isNaN(hours)||hours<0) throw new Error("Invalid hours.");
       if(Number.isNaN(cleaners)||cleaners<1) throw new Error("Invalid number of cleaners.");
 
@@ -127,7 +127,7 @@ export default function ServicesAdmin(){
 
     <div className="table">
       {loading?<p className="text" style={{padding:20}}>Loading services…</p>
-      :items.length===0?<p className="text" style={{padding:20}}>Walang service pa. Gamitin ang “+ ADD SERVICE”.</p>
+      :items.length===0?<p className="text" style={{padding:20}}>No services yet. Use “+ ADD SERVICE”.</p>
       :<table>
         <thead><tr>
           <th>Name</th><th>Description</th><th>Hours</th><th>Cleaners</th><th>Order</th><th>Website</th><th></th>

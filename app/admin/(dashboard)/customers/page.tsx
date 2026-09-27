@@ -88,7 +88,7 @@ export default function Customers(){
     <div className="cards">
       {loading?<p className="text" style={{padding:20}}>Loading customers…</p>
       :customers.length===0?<p className="text" style={{padding:20}}>
-        {rows.length===0?"Wala pang booking kaya wala pang customer.":"Walang customer na tumutugma sa hinahanap mo."}
+        {rows.length===0?"No bookings yet, so there are no customers yet.":"No customer matches your search."}
       </p>
       :customers.map(c=>{
         const isOpen=open===c.key;
@@ -97,7 +97,7 @@ export default function Customers(){
             <div>
               <strong className="custcard-name">{c.name}</strong>
               <div className="small muted">
-                {[c.phone,c.email,c.city].filter(Boolean).join(" · ")||"Walang contact detail"}
+                {[c.phone,c.email,c.city].filter(Boolean).join(" · ")||"No contact details"}
               </div>
             </div>
             <div className="custcard-stats">

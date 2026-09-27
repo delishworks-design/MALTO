@@ -140,7 +140,7 @@ export default function TeamAdmin(){
     if(busy) return;
     setBusy(m.id||"new"); setError(null);
     try{
-      if(!m.name.trim()) throw new Error("Kailangan ng pangalan.");
+      if(!m.name.trim()) throw new Error("A name is required.");
       const supabase=createClient();
       const payload={
         name:m.name.trim(),role:m.role,phone:m.phone,email:m.email,
@@ -217,7 +217,7 @@ export default function TeamAdmin(){
     </div>
 
     {loading?<p className="text" style={{padding:20}}>Loading team…</p>
-    :items.length===0?<p className="text" style={{padding:20}}>Walang member pa. Gamitin ang “+ ADD MEMBER”.</p>
+    :items.length===0?<p className="text" style={{padding:20}}>No team members yet. Use “+ ADD MEMBER”.</p>
     :<div className="teamgrid">
       {items.map(m=>{
         const key=m.id||"new";
@@ -229,9 +229,9 @@ export default function TeamAdmin(){
               :<div className="teamphoto teamphoto-empty">{(m.name||"?").slice(0,1).toUpperCase()}</div>}
             <div style={{flex:1,minWidth:0}}>
               <strong className="custcard-name">{m.name||"New member"}</strong>
-              <div className="small muted">{m.role||"Walang role"}</div>
+              <div className="small muted">{m.role||"No role"}</div>
               <div className="small muted">
-                {m.hire_date?`Hired ${new Date(m.hire_date+"T00:00:00").toLocaleDateString("en-PH",{month:"short",day:"numeric",year:"numeric"})}`:"Walang hire date"}
+                {m.hire_date?`Hired ${new Date(m.hire_date+"T00:00:00").toLocaleDateString("en-PH",{month:"short",day:"numeric",year:"numeric"})}`:"No hire date"}
                 {" · "}<span className={"badge"+(m.active?" on":"")}>{m.active?"Active":"Inactive"}</span>
               </div>
               <div className="small muted" style={{marginTop:6,display:"flex",gap:6,flexWrap:"wrap"}}>

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getSiteData, REVALIDATE } from "@/lib/site";
+import { SiteHeader } from "@/components/SiteChrome";
 
 export const revalidate = REVALIDATE;
 
@@ -11,10 +12,7 @@ export async function generateMetadata() {
 export default async function FAQPage() {
   const d = await getSiteData();
   return <main>
-    <header className="header"><div className="container nav">
-      <Link href="/" className="logo">MALTO<small>CLEANING SERVICES</small></Link>
-      <Link className="btn" href="/book">{d.s("cta_primary")}</Link>
-    </div></header>
+    <SiteHeader ctaLabel={d.s("cta_primary")} />
     <section className="section"><div className="container">
       <div className="eyebrow">FAQ</div>
       <h1>{d.s("faq_heading")}</h1>

@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import { SiteHeader } from "@/components/SiteChrome";
 
 const steps=["Service","Property","Scope","Materials","Location","Schedule","Customer","Review"];
 const DEFAULT_SERVICE_OPTIONS=["Home Cleaning","Deep Cleaning","Move-In / Move-Out","Small Business"];
@@ -213,9 +214,9 @@ export default function Book() {
    }
  };
 
- if(submitted) return <main><header className="header"><div className="container nav"><Link href="/" className="logo">MALTO<small>CLEANING SERVICES</small></Link></div></header><div className="booking-wrap"><div className="booking-shell"><div className="eyebrow">REQUEST RECEIVED</div><h2>Thank you.</h2><p className="lead">Your cleaning request has been received. MALTO will review the request, check availability, confirm the final price and contact you.</p><div className="notice"><strong>Request ID:</strong> {bookingRef}<br/><strong>Requested appointment:</strong> {data.date || "Your requested date"} — {data.time}</div>{photoNote&&<div className="notice">{photoNote}</div>}<Link className="btn" href="/">BACK TO HOME</Link></div></div></main>;
+ if(submitted) return <main><SiteHeader minimal /><div className="booking-wrap"><div className="booking-shell"><div className="eyebrow">REQUEST RECEIVED</div><h2>Thank you.</h2><p className="lead">Your cleaning request has been received. MALTO will review the request, check availability, confirm the final price and contact you.</p><div className="notice"><strong>Request ID:</strong> {bookingRef}<br/><strong>Requested appointment:</strong> {data.date || "Your requested date"} — {data.time}</div>{photoNote&&<div className="notice">{photoNote}</div>}<Link className="btn" href="/">BACK TO HOME</Link></div></div></main>;
  const next=()=>setStep(s=>Math.min(7,s+1)); const back=()=>setStep(s=>Math.max(0,s-1));
- return <main><header className="header"><div className="container nav"><Link href="/" className="logo">MALTO<small>CLEANING SERVICES</small></Link><Link className="small" href="/">Back to website</Link></div></header>
+ return <main><SiteHeader backHref="/" minimal />
  <div className="booking-wrap"><div className="booking-shell"><div className="progress">{steps.map((_,i)=><span className={i<=step?"active":""} key={i}/>)}</div><div className="eyebrow">STEP {step+1} OF 8</div><h2>{steps[step]}</h2>
  {step===0&&<>
    <div className="choice-grid">{serviceOptions.map(x=><label className="choice" key={x}><input type="radio" checked={data.service===x} onChange={()=>set("service",x)}/>{x}</label>)}</div>
