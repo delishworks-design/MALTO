@@ -6,5 +6,7 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/admin/:path*"],
+  // /portal needs the same session refresh as /admin, otherwise a member's
+  // cookie goes stale mid-session and their assignments stop loading.
+  matcher: ["/admin/:path*", "/portal/:path*"],
 };

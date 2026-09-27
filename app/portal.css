@@ -1,0 +1,27 @@
+.portal-page { min-height:100vh; }
+.portal-shell { width:min(880px,calc(100% - 40px)); margin:0 auto; padding:56px 0 100px; }
+
+.jobcard { background:var(--white); border:1px solid var(--border); margin-top:16px; }
+.jobcard-top { display:flex; gap:16px; align-items:flex-start; padding:20px; cursor:pointer; }
+.jobcard-top:hover { border-color:var(--charcoal); }
+.jobcard-ref { font:11px Arial,sans-serif; letter-spacing:.14em; text-transform:uppercase; color:var(--sage); }
+.jobcard-service { font:20px Georgia,serif; margin:4px 0 6px; }
+.jobcard-body { border-top:1px solid var(--border); padding:20px; }
+
+.jobgrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:18px; }
+.jobgrid-item { display:flex; flex-direction:column; gap:4px; min-width:0; }
+.joblabel { font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--graygreen); }
+.joblink { font-size:13px; text-decoration:underline; margin-top:2px; }
+.jobphoto { width:100%; max-height:320px; object-fit:cover; border:1px solid var(--border); margin-top:18px; }
+.jobactions { display:flex; gap:10px; flex-wrap:wrap; margin-top:18px; }
+
+.member-pick { display:flex; align-items:flex-start; gap:12px; padding:13px 0; border-bottom:1px dashed var(--border); cursor:pointer; }
+.member-pick:last-child { border-bottom:0; }
+.member-pick input { width:auto; margin-top:3px; }
+.member-pick-disabled { opacity:.5; cursor:not-allowed; }
+.member-load { font-size:12px; color:var(--graygreen); }
+
+@media(max-width:560px) {
+  .jobgrid { grid-template-columns:minmax(0,1fr); }
+  .jobcard-top { flex-direction:column; gap:10px; }
+}

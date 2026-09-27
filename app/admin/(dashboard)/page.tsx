@@ -6,6 +6,15 @@ const STATUSES=["New Request","Confirmed","In Progress","Completed","Cancelled"]
 const PHOTO_BUCKET="booking-photos";
 const ACTIVE=["Confirmed","In Progress"];
 
+const ASSIGN_STATUS:Record<string,string>={
+  pending:"Waiting for reply", accepted:"Accepted", declined:"Declined",
+  on_the_way:"On the way", done:"Done", cancelled:"Cancelled",
+};
+type MemberRow={ id:string; name:string; role:string; phone:string; email:string;
+  available:boolean; unavailable_note:string; portal_status:string; active:boolean };
+type AssignmentRow={ id:string; booking_id:string; member_id:string; status:string;
+  note:string; member_note:string; member?:MemberRow };
+
 const pad=(n:number)=>String(n).padStart(2,"0");
 const toISO=(d:Date)=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
 
@@ -211,6 +220,74 @@ export default function Bookings(){
   // an explicit SEND AGAIN instead of the admin hammering the button.
   const [quoteBlock,setQuoteBlock]=useState<{id:string;message:string;canOverride:boolean}[]>([]);
 
+  // --- Assignments ---------------------------------------------------------
+  const [assignments,setAssignments]=useState<Record<string,AssignmentRow[]>>({});
+  const [pickerFor,setPickerFor]=useState<string|null>(null);
+  const [pickerMembers,setPickerMembers]=useState<MemberRow[]>([]);
+  const [pickerPick,setPickerPick]=useState<string[]>([]);
+  const [pickerNote,setPickerNote]=useState("");
+
+  const loadAssignments=useCallback(async(bookingId?:string)=>{
+    try{
+      const res=await fetch(bookingId?`/api/admin/assignments?booking_id=${bookingId}`:"/api/admin/assignments");
+      const j=await res.json().catch(()=>({} as any));
+      if(!res.ok||!j.ok) return;
+      if(bookingId){ setAssignments(p=>({...p,[bookingId]:j.assignments??[]})); return; }
+      const all:Record<string,AssignmentRow[]>={};
+      for(const a of (j.assignments??[])){
+        const bd=(a as any).booking_date as {date?:string}|null;
+        const key=bd?.date||"";
+        (all[key]??=[]).push(a as AssignmentRow);
+      }
+      setAssignments(all);
+    }catch{ /* the panel simply stays empty */ }
+  },[]);
+
+  const openAssign=async(bookingId:string)=>{
+    setPickerFor(bookingId); setPickerPick([]); setPickerNote("");
+    await loadAssignments(bookingId);
+    try{
+      const supabase=createClient();
+      const {data}=await supabase.from("team_members")
+        .select("id,name,role,phone,email,available,unavailable_note,portal_status,active")
+        .order("sort_order");
+      setPickerMembers((data as MemberRow[])??[]);
+    }catch{ setPickerMembers([]); }
+  };
+
+  const commitAssign=async()=>{
+    if(!pickerFor||busy) return;
+    setBusy(pickerFor); setError(null);
+    try{
+      const res=await fetch("/api/admin/assignments",{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({booking_id:pickerFor,member_ids:pickerPick,note:pickerNote})
+      });
+      const j=await res.json().catch(()=>({} as any));
+      if(!res.ok||!j.ok) throw new Error(j.error||"Could not assign.");
+      setNotice(`${j.assigned} member${j.assigned===1?"":"s"} assigned to ${j.bookingRef}.`);
+      setTimeout(()=>setNotice(null),4000);
+      setPickerFor(null);
+      await loadAssignments(pickerFor);
+    }catch(err:any){ setError(friendlyError(err)); }
+    finally{ setBusy(null); }
+  };
+
+  const unassign=async(id:string)=>{
+    if(busy) return;
+    setBusy(id); setError(null);
+    try{
+      const res=await fetch(`/api/admin/assignments?id=${id}`,{method:"DELETE"});
+      const j=await res.json().catch(()=>({} as any));
+      if(!res.ok||!j.ok) throw new Error(j.error||"Could not remove the assignment.");
+      await loadAssignments();
+    }catch(err:any){ setError(friendlyError(err)); }
+    finally{ setBusy(null); }
+  };
+
+  // Once on mount: everything the picker needs to show conflicts.
+  useEffect(()=>{ loadAssignments(); },[loadAssignments]);
+
   const sendQuote=async(id:string,override=false)=>{
     if(busy) return;
     setBusy(id); setError(null);
@@ -266,6 +343,9 @@ export default function Bookings(){
     const next=expanded===b.id?null:b.id;
     setExpanded(next);
     if(next&&b.photo_path) loadPhoto(b);
+    // Fetch this booking's crew as it is opened, otherwise the row reports
+    // "Nobody assigned yet" for a job that already has a team on it.
+    if(next) loadAssignments(b.id);
   };
 
   const clearFilters=()=>{ setSearch(""); setStatusFilter("All"); setQuick(null); };
@@ -343,6 +423,75 @@ export default function Bookings(){
       </span>
     </div>
 
+    {/* Member picker. Kept above the table so it reads as a dialog over the
+        list. The load column is the whole point: it shows what each person is
+        already on for the same date before anyone is double-booked. */}
+    {pickerFor&&(()=>{
+      const booking=rows.find(r=>r.id===pickerFor);
+      const date=booking?.date||"";
+      const already=new Set((assignments[pickerFor]??[]).map(a=>a.member_id));
+      const open:Record<string,number>={};
+      (assignments[date]??[]).forEach(a=>{ if(a.status!=="declined"&&a.status!=="cancelled") open[a.member_id]=(open[a.member_id]??0)+1; });
+      const approved=pickerMembers.filter(m=>m.portal_status==="approved"&&m.active);
+      const blocked=pickerMembers.filter(m=>!(m.portal_status==="approved"&&m.active));
+
+      const row=(m:MemberRow,selectable:boolean)=>{
+        const on=open[m.id]??0;
+        return <label key={m.id}
+          className={"member-pick"+((m.available===false&&selectable)?" member-pick-disabled":"")}
+          style={m.available===false&&selectable?undefined:{cursor:"pointer"}}>
+          <input type="checkbox" disabled={!selectable||busy===pickerFor}
+            checked={pickerPick.includes(m.id)||already.has(m.id)}
+            onChange={e=>{
+              if(already.has(m.id)) return;
+              setPickerPick(p=>e.target.checked?[...p,m.id]:p.filter(x=>x!==m.id));
+            }}/>
+          <span style={{minWidth:0}}>
+            <strong style={{display:"block",fontSize:14}}>{m.name}</strong>
+            <span className="member-load">
+              {m.role||"No role"}
+              {on>0&&` · ${on} job${on===1?"":"s"} on ${date||"that day"}`}
+              {m.available===false&&` · unavailable${m.unavailable_note?` (${m.unavailable_note})`:""}`}
+            </span>
+            {already.has(m.id)&&<span className="badge on">Already assigned</span>}
+          </span>
+        </label>;
+      };
+
+      return <div className="panel" style={{marginBottom:20,borderLeft:"4px solid var(--sage)"}}>
+        <div className="panel-head">
+          <strong>Assign team · {booking?.booking_ref||"booking"}</strong>
+          <button className="linkbtn" onClick={()=>setPickerFor(null)}>Close</button>
+        </div>
+        {booking?.date
+          ? <p className="small muted" style={{margin:"0 0 6px"}}>Scheduled {fmtDate(booking.date)}{booking.time?` · ${booking.time}`:""}. Anyone already working that day is flagged.</p>
+          : <p className="small" style={{margin:"0 0 6px",color:"#8A6420"}}>This booking has no date yet, so no load can be shown.</p>}
+
+        <div style={{marginTop:12}}>
+          {approved.length===0&&<p className="text" style={{padding:"10px 0"}}>No approved members yet. Approve applicants in the Team tab first.</p>}
+          {approved.map(m=>row(m,true))}
+          {blocked.length>0&&<>
+            <div className="eyebrow" style={{margin:"16px 0 4px"}}>NOT ELIGIBLE YET</div>
+            {blocked.map(m=>row(m,false))}
+          </>}
+        </div>
+
+        <div className="field" style={{marginTop:16}}>
+          <label>Note for the team (optional)</label>
+          <input value={pickerNote} onChange={e=>setPickerNote(e.target.value)}
+            placeholder="e.g. Bring the key from the office"/>
+        </div>
+
+        <div style={{display:"flex",gap:8,marginTop:14,flexWrap:"wrap"}}>
+          <button className="btn" disabled={busy===pickerFor||pickerPick.length===0} style={{minHeight:44,opacity:busy===pickerFor||pickerPick.length===0?.6:1}}
+            onClick={commitAssign}>
+            {busy===pickerFor?"ASSIGNING…":`ASSIGN ${pickerPick.length||""}`.trim()}
+          </button>
+          <button className="btn secondary" style={{minHeight:44}} onClick={()=>setPickerFor(null)}>Cancel</button>
+        </div>
+      </div>;
+    })()}
+
     <div className="table">
       {loading?<p className="text" style={{padding:20}}>Loading bookings…</p>
       :rows.length===0?<p className="text" style={{padding:20}}>No bookings yet. Submissions from the booking form will appear here.</p>
@@ -369,7 +518,36 @@ export default function Bookings(){
             </tr>
             {expanded===b.id&&<tr>
               <td colSpan={7}>
-                <div className="estimate">
+                  <div className="estimate">
+                    {/* Who is on this job, and the controls to put someone on it. */}
+                    <div className="field" style={{marginBottom:22}}>
+                      <label>Assigned team</label>
+                      <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                        <button className="btn secondary" style={{minHeight:44}}
+                          onClick={()=>openAssign(b.id)}>
+                          ASSIGN MEMBER
+                        </button>
+                        <span className="small muted">
+                          {(assignments[b.id]??[]).length
+                            ? `${(assignments[b.id]??[]).length} assigned`
+                            : "Nobody assigned yet"}
+                        </span>
+                      </div>
+                      {(assignments[b.id]??[]).length>0&&(
+                        <div style={{marginTop:12}}>
+                          {(assignments[b.id]??[]).map(a=>(
+                            <div key={a.id} style={{display:"flex",gap:10,alignItems:"center",padding:"8px 0",borderBottom:"1px dashed var(--border)"}}>
+                              <strong style={{fontSize:13}}>{a.member?.name||"Member"}</strong>
+                              {a.member?.available===false&&<span className="badge">Unavailable</span>}
+                              <span className={"badge"+(a.status==="pending"?"":" on")}>{ASSIGN_STATUS[a.status]??a.status}</span>
+                              <button className="linkbtn" disabled={busy===a.id}
+                                onClick={()=>unassign(a.id)}>Remove</button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
                   <div className="form-grid">
                     {detailRows(b).map(([k,v])=><div className="field" key={k}><label>{k}</label><span className="text">{v?String(v):"—"}</span></div>)}
                     <div className="field">

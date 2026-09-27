@@ -23,9 +23,14 @@ export default function AdminLayout({children}:{children:React.ReactNode}){
     let alive=true;
     (async()=>{
       try{
-        const {data:{user}}=await createClient().auth.getUser();
+        const supabase=createClient();
+        const {data:{user}}=await supabase.auth.getUser();
         if(!alive) return;
         if(!user){ router.replace("/admin/login"); return; }
+        // A team member is signed in too, but has no business here. is_admin()
+        // is the same check the database uses, so the UI cannot drift from it.
+        const {data:admin}=await supabase.rpc("is_admin");
+        if(alive && admin!==true){ router.replace("/portal"); return; }
         setEmail(user.email||"");
       }catch{
         if(alive) router.replace("/admin/login");
