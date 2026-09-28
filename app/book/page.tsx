@@ -298,7 +298,12 @@ export default function Book() {
   useEffect(() => {
     if (prevSlotKey.current === slotKey) return;
     prevSlotKey.current = slotKey;
-    if (data.starts_at) setData(d => ({ ...d, starts_at: null, slot_label: "" }));  // eslint-disable-line react-hooks/exhaustive-deps
+    // Read the old value inside the updater rather than closing over
+    // data.starts_at. Reading it here made it look like a missing dependency,
+    // and silencing that with an eslint-disable only moved the problem: the
+    // rule reports on the dependency array, not on the line that reads the
+    // value, so the suppression was on the wrong line and never applied.
+    setData(d => (d.starts_at ? { ...d, starts_at: null, slot_label: "" } : d));
   }, [slotKey]);
 
   // --- per-step validation, so CONTINUE cannot walk past an empty step
@@ -580,7 +585,7 @@ export default function Book() {
       <div className="form-grid">
         <div className="field"><label>Preferred Date</label>
           <input type="date" min={manilaToday()} value={data.date || ""} onChange={e => set("date", e.target.value)} />
-          <span className="small muted">Today is fine if a cleaner still has a free start. Otherwise we ask for a day's notice.</span>
+          <span className="small muted"><span className="small muted">Today is fine if a cleaner still has a free start. Otherwise we ask for a day&apos;s notice.</span></span>
         </div>
         <div className="field"><label>Time of day</label>
           <select value={data.time} onChange={e => set("time", e.target.value)}>
@@ -591,7 +596,7 @@ export default function Book() {
       {chosenPartner ? (
         <div className="field" style={{ marginTop: 22 }}>
           <label>Start time with {chosenPartner.name}</label>
-          {slotsBusy ? <p className="small muted">Checking {chosenPartner.name}'s calendar…</p>
+          {slotsBusy ? <p className="small muted">Checking {chosenPartner.name}&apos;s calendar…</p>
             : slotsFailed ? <p className="small muted">
                 We could not reach the availability calendar just now. Try again, or choose no preference and we will
                 arrange a time with you.
