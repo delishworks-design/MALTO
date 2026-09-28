@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { isNative } from "@/lib/is-native";
 
 /**
  * Blocks the app when the installed build is too old to keep using.
@@ -24,15 +25,7 @@ type Verdict = { ok: boolean; reason: string; min: string; latest: string; url: 
 
 // Kept in step with the build's versionName. If these drift the check compares
 // against the wrong number, so the build is what changes and not this.
-const APP_VERSION = "1.0.0";
-
-function isNative(): boolean {
-  // Read off the global rather than importing Capacitor: this module is
-  // bundled into the website too, where pulling in the native plugin is dead
-  // weight and would try to talk to a bridge that is not there.
-  const cap = (globalThis as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
-  return typeof cap?.isNativePlatform === "function" ? cap.isNativePlatform() : false;
-}
+const APP_VERSION = "1.0.1";
 
 export function AppVersionGate() {
   const [blocked, setBlocked] = useState<Verdict | null>(null);

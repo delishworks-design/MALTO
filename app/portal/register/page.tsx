@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/utils/supabase/client";
 import { SiteHeader } from "@/components/SiteChrome";
+import { isNative } from "@/lib/is-native";
 
 /**
  * Partner registration.
@@ -57,6 +58,27 @@ export default function PartnerRegister() {
   const [field, setField] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const termsRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * Registration is app-only. The website sends a visitor to /join, which
+   * explains the partnership and offers the download, instead of showing a form.
+   *
+   * The API itself stays open, deliberately: locking it would need a secret the
+   * WebView can produce but a browser cannot, and every account that comes
+   * through still lands as 'pending' and needs an approval before it can see
+   * anything. So the guarantee is that nobody stumbles into registration from a
+   * public page, not that the endpoint is unreachable.
+   *
+   * The decision is made in an effect rather than during render, because
+   * window.Capacitor does not exist while the page is being server rendered. The
+   * alternative is rendering the form first and hiding it a frame later, which
+   * is exactly the flash of the wrong thing this gate exists to prevent.
+   */
+  const [appOnly, setAppOnly] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (isNative()) setAppOnly(true);
+    else router.replace("/join#join");
+  }, [router]);
 
   // Reference data. The city list is public, so this needs no admin session.
   useEffect(() => {
@@ -183,6 +205,12 @@ export default function PartnerRegister() {
     if (password.length < 8) { setField("password"); setError("Your password needs at least 8 characters."); return; }
     setStep(2);
   };
+
+  // Undecided: the native check has not run yet, and rendering the form for one
+  // frame is the exact flash this gate is here to avoid.
+  if (appOnly === null) {
+    return <main className="portal-page"><div className="portal-shell"><p className="lead">Checking…</p></div></main>;
+  }
 
   return <main className="portal-page">
     <SiteHeader minimal backHref="/" />

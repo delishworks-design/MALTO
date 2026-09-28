@@ -148,7 +148,7 @@ export default async function PartnersPage({
           </p>
           <div className="empty-actions">
             <Link className="btn" href="/book">BOOK A CLEANING</Link>
-            <Link className="btn secondary" href="/portal/register">Become a partner</Link>
+            <Link className="btn secondary" href="/join#join">Become a partner</Link>
           </div>
         </div>
       ) : (

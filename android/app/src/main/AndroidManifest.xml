@@ -33,9 +33,33 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths"></meta-data>
         </provider>
+
+        <!-- Which channel a notification lands on when the message does not name
+             one. Without this the Firebase SDK creates its own fallback channel
+             with "basic settings out of the box", and on Android 8+ a channel's
+             sound is fixed the moment it is created and cannot be changed by the
+             app afterwards. Falling back would mean the chime never plays and
+             could not be fixed without an uninstall. The channel itself is
+             created in code on first launch, from components/PushRegistration.tsx,
+             and the id here has to match CHANNEL_ID in lib/push-fcm.ts. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="@string/malto_jobs_channel" />
+
+        <!-- The status bar icon. Android renders this from the alpha channel
+             only and discards colour, so it is a white silhouette rather than
+             the sage logo, which would show up as a plain white square. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_stat_malto" />
     </application>
 
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Runtime-requested on Android 13+. A member who declines still gets web
+         push in the browser portal, and the portal says so rather than looking
+         broken. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 </manifest>

@@ -7,6 +7,7 @@ import "./globals.css";
 import "./design-system.css";
 import "./portal.css";
 import { AppVersionGate } from "@/components/AppVersionGate";
+import { PortalFence } from "@/components/PortalFence";
 
 export const metadata: Metadata = {
   title: "MALTO Cleaning Services | A Better Standard of Clean.",
@@ -19,7 +20,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         {/* In the root layout rather than the portal, because the app's WebView
             can be sitting on any page and a build we know is broken should be
-            caught wherever it is. It renders nothing in a browser. */}
+            caught wherever it is. Both render nothing in a browser. */}
+        <PortalFence />
         <AppVersionGate />
         {children}
       </body>

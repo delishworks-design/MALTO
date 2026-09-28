@@ -10,14 +10,21 @@ android {
         // loses their session. The keystore itself lives outside the repository
         // and is backed up separately.
         release {
-            storeFile file(project.findProperty("MALTO_KEYSTORE") ?: System.getenv("MALTO_KEYSTORE") ?: "")
+            // file("") throws at configuration time, which broke a plain
+            // `assembleDebug` on a machine with no signing environment. Leaving
+            // storeFile unset is harmless: the build type below only selects
+            // this config when the password is actually present.
+            def keystorePath = project.findProperty("MALTO_KEYSTORE") ?: System.getenv("MALTO_KEYSTORE")
+            if (keystorePath) {
+                storeFile file(keystorePath)
+            }
             storePassword System.getenv("MALTO_KEYSTORE_PASSWORD") ?: ""
             keyAlias System.getenv("MALTO_KEY_ALIAS") ?: "malto"
             keyPassword System.getenv("MALTO_KEY_PASSWORD") ?: ""
-            // v1 as well as v2. v2 alone is enough from API 24 up, but enabling
-            // the JAR signature costs nothing and means the APK still installs
-            // on a sideloaded device whose package installer is fussy or old.
-            enableV1Signing true
+            // v2 is the only scheme enabled. v1 (JAR signing) is redundant above
+            // API 24, and it is what pulls the old certificate files back into
+            // the archive and adds 25KB for no benefit on a modern device.
+            enableV1Signing false
             enableV2Signing true
         }
     }
@@ -32,8 +39,8 @@ android {
         // providers.gradleProperty is the supported way to read a -P flag.
         // project.hasProperty does not reliably resolve these on an
         // application module in Gradle 8 and failed the build outright.
-        versionCode providers.gradleProperty("appVersionCode").map { it.toInteger() }.getOrElse(1)
-        versionName providers.gradleProperty("appVersionName").getOrElse("1.0.0")
+        versionCode providers.gradleProperty("appVersionCode").map { it.toInteger() }.getOrElse(2)
+        versionName providers.gradleProperty("appVersionName").getOrElse("1.0.1")
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

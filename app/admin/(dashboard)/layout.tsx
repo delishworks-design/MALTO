@@ -18,6 +18,31 @@ export default function AdminLayout({children}:{children:React.ReactNode}){
   const pathname=usePathname();
   const router=useRouter();
   const [email,setEmail]=useState("");
+  /**
+   * New bookings that arrived while the admin was on another tab.
+   *
+   * The dashboard announces a new booking in place, which is not enough: the
+   * common case is an admin looking at the Team page or Settings when one comes
+   * in, and they have no reason to suspect anything happened. This counts them
+   * from the same realtime channel, so the tab bar itself says there is
+   * something waiting, and it clears when they go back to Bookings.
+   */
+  const [unseen,setUnseen]=useState(0);
+
+  useEffect(()=>{
+    const supabase=createClient();
+    const channel=supabase.channel("admin-nav-bookings");
+    channel.on("postgres_changes",
+      {event:"INSERT",schema:"public",table:"bookings"},
+      ()=>setUnseen(n=>n+1));
+    channel.subscribe();
+    return ()=>{ void supabase.removeChannel(channel); };
+  },[]);
+
+  // Looking at the bookings is what clears it, not merely being on the tab.
+  useEffect(()=>{
+    if(pathname==="/admin") setUnseen(0);
+  },[pathname]);
 
   useEffect(()=>{
     let alive=true;
@@ -51,7 +76,7 @@ export default function AdminLayout({children}:{children:React.ReactNode}){
       <span style={{display:"flex",gap:18,alignItems:"center"}}>
         <span className="small" style={{color:"#DDDCD6"}}>{email}</span>
         <button className="small" onClick={signOut}
-          style={{background:"none",border:0,color:"#DDDCD6",cursor:"pointer",font:"inherit"}}>
+          style={{background:"none",border:0,color:"#DDDCD6",cursor:"pointer",font:"inherit",minHeight:40,padding:"0 8px"}}>
           Sign out
         </button>
       </span>

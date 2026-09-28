@@ -28,11 +28,14 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${base}/contact`, lastModified: now, changeFrequency: "yearly", priority: 0.4 },
     { url: `${base}/privacy`, lastModified: now, changeFrequency: "yearly", priority: 0.2 },
     { url: `${base}/terms`, lastModified: now, changeFrequency: "yearly", priority: 0.2 },
-    // How partners join, not a page for customers to read. /join replaces
-    // /portal/register in the navigation, and it is the one that also carries
-    // the app download, so it is the one worth indexing.
+    // How partners join, not a page for customers to read. /join replaced
+    // /portal/register everywhere in the navigation, and it is the one that
+    // carries the app download, so it is the one worth indexing.
+    //
+    // /portal/register is deliberately absent. It is reachable only from inside
+    // the app, and a browser that asks for it is redirected to /join. Listing
+    // it would invite Google to index a page that never renders.
     { url: `${base}/join`, lastModified: now, changeFrequency: "monthly", priority: 0.6 },
-    { url: `${base}/portal/register`, lastModified: now, changeFrequency: "monthly", priority: 0.5 },
   ];
 
   let partnerRoutes: MetadataRoute.Sitemap = [];

@@ -59,7 +59,7 @@ export default async function JoinPage() {
         cover and your own working hours. We handle the booking, the quote and the customer.
       </p>
       <div className="actions">
-        <Link className="btn" href="/portal/register">Become a partner</Link>
+        <Link className="btn" href="#app">Get the partner app</Link>
         <Link className="btn secondary" href="/partners">See the directory</Link>
       </div>
     </div>
@@ -179,7 +179,7 @@ export default async function JoinPage() {
           Register, read the agreement, and we will confirm your details and publish your profile.
         </p>
         <div className="actions center">
-          <Link className="btn" href="/portal/register">Become a partner</Link>
+          <Link className="btn" href="#app">Get the partner app</Link>
           <Link className="btn secondary" href="/terms">Read the terms</Link>
         </div>
       </div>

@@ -52,6 +52,33 @@ export default function TeamAdmin() {
   const [timeOff, setTimeOff] = useState<Record<string, TimeOff[]>>({});
   const [cityQuery, setCityQuery] = useState<Record<string, string>>({});
 
+  // Creating a sign-in for someone who has none. The generated password is
+  // shown once in a panel rather than in a toast, because a toast disappears
+  // before it can be read out or copied, and the password is never stored
+  // anywhere it could be fetched back.
+  const [newAccount, setNewAccount] = useState<{ name: string; email: string; password: string } | null>(null);
+  const [acctEmail, setAcctEmail] = useState<Record<string, string>>({});
+  const [acctField, setAcctField] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const createAccount = async (m: Member) => {
+    if (busy) return;
+    const email = (acctEmail[m.id] ?? m.email ?? "").trim();
+    setBusy(m.id); setError(null); setAcctField(null);
+    try{
+      const res = await fetch("/api/admin/create-partner-account", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ partner_id: m.id, email }),
+      });
+      const j = await res.json().catch(()=>({} as any));
+      if(!res.ok || j.ok===false){ setAcctField(j.field ?? null); throw new Error(j.error || "Could not create the account."); }
+      setNewAccount({ name: m.name, email: j.email, password: j.password });
+      setAcctEmail(p=>({ ...p, [m.id]: "" }));
+      await load();
+    }catch(e:any){ setError(e?.message || "Could not create the account."); }
+    finally { setBusy(null); }
+  };
+
   const flash = (m: string) => { setNotice(m); setTimeout(() => setNotice(null), 2600); };
 
   // Job load per member, so the roster shows who is already carrying work.
@@ -376,6 +403,42 @@ export default function TeamAdmin() {
     {error && <div className="notice" style={{ background: "#FBE9E7", color: "#8A2C1D" }}>{error}</div>}
     {notice && <div className="notice">{notice}</div>}
 
+    {newAccount && (
+      <div className="panel" style={{ margin: "0 0 18px", borderLeft: "4px solid var(--sage)" }}>
+        <div className="panel-head">
+          <strong>Account created for {newAccount.name}</strong>
+          <button className="btn" style={{ minHeight: 38, marginBottom: 0 }}
+            onClick={() => { setNewAccount(null); setCopied(false); }}>
+            Close
+          </button>
+        </div>
+        <p className="small muted" style={{ margin: "0 0 14px" }}>
+          This is the only time the password is shown, and it is not stored anywhere you can fetch it
+          again. Send it over now, then close this.
+        </p>
+        <div className="form-grid">
+          <div className="field">
+            <label>Email</label>
+            <input readOnly value={newAccount.email} />
+          </div>
+          <div className="field">
+            <label>Password</label>
+            <input readOnly value={newAccount.password} />
+          </div>
+        </div>
+        <div className="actions" style={{ marginTop: 14 }}>
+          <button className="btn" style={{ minHeight: 38 }} onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(`Email: ${newAccount.email}\nPassword: ${newAccount.password}`);
+              setCopied(true);
+            } catch { setCopied(false); }
+          }}>
+            {copied ? "COPIED" : "COPY BOTH"}
+          </button>
+        </div>
+      </div>
+    )}
+
     <div className="eyebrow">PARTNERS</div>
     <h1>The people who do the work.</h1>
     <p className="small muted">
@@ -471,6 +534,39 @@ export default function TeamAdmin() {
                     ? <span className="member-load">{jobLoad[m.id].open} open job{jobLoad[m.id].open === 1 ? "" : "s"}{jobLoad[m.id].next ? ` · next ${jobLoad[m.id].next}` : ""}</span>
                     : (m.portal_status === "approved" && m.user_id && <span className="member-load">No open jobs</span>)}
                 </div>
+
+                {/* Someone with a profile but no sign-in. "Add partner" has
+                    always left them stranded: the page used to say a member with
+                    no user_id can never sign in, which is true and useless. This
+                    creates the account here instead. */}
+                {!m.is_sample && !m.user_id && (
+                  <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--border)" }}>
+                    <strong style={{ fontSize: 14 }}>Create their sign-in</strong>
+                    <p className="small muted" style={{ margin: "4px 0 10px" }}>
+                      Registration is done in the app now, so someone without the app needs you to set this
+                      up. You will get a password to send them.
+                    </p>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start" }}>
+                      <input
+                        style={{ flex: "1 1 220px", minWidth: 0, minHeight: 44 }}
+                        type="email"
+                        placeholder={m.email || "their email address"}
+                        value={acctEmail[m.id] ?? ""}
+                        aria-invalid={acctField === "email"}
+                        onChange={(e) => setAcctEmail((p) => ({ ...p, [m.id]: e.target.value }))}
+                      />
+                      <button
+                        className="btn"
+                        style={{ minHeight: 44, marginBottom: 0, flex: "0 0 auto" }}
+                        disabled={busy === m.id}
+                        onClick={() => createAccount(m)}
+                      >
+                        {busy === m.id ? "CREATING…" : "CREATE ACCOUNT"}
+                      </button>
+                    </div>
+                    {acctField === "email" && <p className="small muted" style={{ color: "#8A2C1D" }}>Enter a valid email address.</p>}
+                  </div>
+                )}
                 {!m.isNew && (
                   <div className="small muted" style={{ marginTop: 6 }}>
                     Profile {done.done}/{done.total} complete
@@ -598,8 +694,11 @@ export default function TeamAdmin() {
                 <div className="field" style={{ marginTop: 16 }}>
                   <label>Weekly hours</label>
                   <p className="small muted" style={{ margin: "0 0 8px" }}>
-                    Partners set these themselves from their portal. Read-only here so an accidental admin save
-                    cannot quietly move a booked slot.
+                    Read-only here, and set by you rather than by the partner. This used to say the
+                    opposite, which was never true: the portal had no hours screen and the database has no
+                    policy a partner can write through. It stays an admin decision because a partner
+                    shortening their own hours can strand a client who already booked a slot in that
+                    window. The partner sees these in the app under Hours.
                   </p>
                   <div className="hoursgrid">
                     {DAYS.map((d, i) => {

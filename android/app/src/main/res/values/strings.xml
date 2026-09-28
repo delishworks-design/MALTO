@@ -4,4 +4,12 @@
     <string name="title_activity_main">MALTO Partner</string>
     <string name="package_name">com.malto.partner</string>
     <string name="custom_url_scheme">com.malto.partner</string>
+
+    <!-- Must match CHANNEL_ID in lib/push-fcm.ts and the id passed to
+         createChannel in components/PushRegistration.tsx. Three places, one
+         value: a mismatch here means the SDK silently builds its own fallback
+         channel instead, and on Android 8+ that channel's sound can never be
+         changed afterwards, so the chime would be unrecoverable short of an
+         uninstall. -->
+    <string name="malto_jobs_channel" translatable="false">malto_jobs_v1</string>
 </resources>

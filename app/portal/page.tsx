@@ -1,485 +1,587 @@
 "use client";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/utils/supabase/client";
+import { PortalChrome } from "@/components/portal/PortalChrome";
+import { PushRegistration } from "@/components/PushRegistration";
+import { OfflineBanner, OfflineScreen, useOfflineFallback } from "@/components/portal/Offline";
+import { isNative } from "@/lib/is-native";
+import { cacheAge, readSnapshot, writeSnapshot } from "@/lib/portal-cache";
+import { storedUserId } from "@/lib/session";
 
 /** The columns my_assignments() is allowed to return. admin_notes is absent
  *  by design and never arrives over the wire. */
-type Assignment={
-  assignment_id:string; status:string; note:string; member_note:string;
-  assigned_at:string; responded_at:string|null; done_at:string|null;
-  booking_id:string; booking_ref:string|null; names:string|null; phone:string|null;
-  email:string|null; services:string|null; date:string|null; time:string|null;
-  adress:string|null; city:string|null; province:string|null; landmark:string|null;
-  access:string|null; property:string|null; sqm:string|null;
-  bedrooms:number|null; bathrooms:number|null; areas:string|null;
-  condition:string|null; scope_notes:string|null; materials:string|null;
-  price:number|null; photo_path:string|null; booking_status:string; booking_created_at:string;
+type Assignment = {
+  assignment_id: string; status: string; note: string; member_note: string;
+  assigned_at: string; responded_at: string | null; done_at: string | null;
+  booking_id: string; booking_ref: string | null; names: string | null; phone: string | null;
+  email: string | null; services: string | null; date: string | null; time: string | null;
+  adress: string | null; city: string | null; province: string | null; landmark: string | null;
+  access: string | null; property: string | null; sqm: string | null;
+  bedrooms: number | null; bathrooms: number | null; areas: string | null;
+  condition: string | null; scope_notes: string | null; materials: string | null;
+  price: number | null; photo_path: string | null; booking_status: string; booking_created_at: string;
 };
-type Me={ id:string; name:string; role:string; email:string; phone:string;
-  available:boolean; unavailable_note:string; portal_status:string; active:boolean };
-
-const fmtDate=(s?:string|null)=>{
-  if(!s) return "—";
-  const d=new Date(`${String(s).slice(0,10)}T00:00:00`);
-  if(Number.isNaN(d.getTime())) return String(s);
-  return d.toLocaleDateString("en-PH",{weekday:"short",month:"short",day:"numeric",year:"numeric"});
-};
-const fmtWhen=(s?:string|null)=>{
-  if(!s) return "—";
-  const d=new Date(s);
-  if(Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString("en-PH",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});
-};
-const money=(n:number|null)=>n===null||n===undefined?"—":`₱${Number(n).toLocaleString("en-PH")}`;
-
-const NEXT:Record<string,{to:string;label:string}[]>={
-  pending:[
-    {to:"accepted",label:"ACCEPT JOB"},
-    {to:"declined",label:"DECLINE"},
-  ],
-  accepted:[
-    {to:"on_the_way",label:"ON THE WAY"},
-    {to:"declined",label:"CANNOT MAKE IT"},
-  ],
-  on_the_way:[
-    {to:"done",label:"MARK AS DONE"},
-  ],
-  done:[], declined:[], cancelled:[],
+type Me = {
+  id: string; name: string; email: string; phone: string;
+  available: boolean; unavailable_note: string; portal_status: string; active: boolean;
 };
 
-/** VAPID keys are handed to the browser base64url encoded. */
-function urlBase64ToUint8Array(base64String:string){
-  const padding="=".repeat((4-(base64String.length%4))%4);
-  const base64=(base64String+padding).replace(/-/g,"+").replace(/_/g,"/");
-  const raw=atob(base64);
-  const output=new Uint8Array(raw.length);
-  for(let i=0;i<raw.length;i++) output[i]=raw.charCodeAt(i);
-  return output;
+/**
+ * The client-side mirror of the server's allowed transitions, in
+ * app/api/portal/assignment/route.ts. The two have to agree: if the UI offers a
+ * move the server refuses, the partner sees an error for something the app
+ * suggested. And if the UI hides a move the server allows, a job can get stuck.
+ */
+const NEXT: Record<string, { to: string; label: string }[]> = {
+  pending: [
+    { to: "accepted", label: "Accept job" },
+    { to: "declined", label: "Decline" },
+  ],
+  accepted: [
+    { to: "on_the_way", label: "Start travelling" },
+    { to: "declined", label: "Cannot make it" },
+  ],
+  on_the_way: [{ to: "done", label: "Mark as done" }],
+  done: [], declined: [], cancelled: [],
+};
+
+const STATUS_LABEL: Record<string, string> = {
+  pending: "Waiting for you", accepted: "Accepted", declined: "Declined",
+  on_the_way: "On the way", done: "Done", cancelled: "Cancelled",
+};
+
+const fmtDate = (s?: string | null) => {
+  if (!s) return "—";
+  const d = new Date(`${String(s).slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return String(s);
+  return d.toLocaleDateString("en-PH", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+};
+const fmtWhen = (s?: string | null) => {
+  if (!s) return "—";
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return String(s);
+  return d.toLocaleString("en-PH", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+};
+const money = (n: number) => `₱${Number(n).toLocaleString("en-PH")}`;
+
+const NOTE_KEY = "malto-portal-notes-v1";
+
+/** Notes survive a refresh. A partner typing on a phone and losing it to an
+ *  accidental reload is the kind of small thing that makes an app feel cheap. */
+function loadNotes(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  try {
+    return JSON.parse(window.localStorage.getItem(NOTE_KEY) || "{}") ?? {};
+  } catch {
+    return {};
+  }
 }
 
-const STATUS_LABEL:Record<string,string>={
-  pending:"Waiting for you", accepted:"Accepted", declined:"Declined",
-  on_the_way:"On the way", done:"Done", cancelled:"Cancelled",
-};
+export default function PortalJobs() {
+  const router = useRouter();
+  const [me, setMe] = useState<Me | null>(null);
+  const [rows, setRows] = useState<Assignment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
+  const [photos, setPhotos] = useState<Record<string, string>>({});
+  const [noteDraft, setNoteDraft] = useState<Record<string, string>>({});
+  const [offline, setOffline] = useState(false);
+  const [cachedAt, setCachedAt] = useState(0);
 
-export default function PortalHome(){
-  const router=useRouter();
-  const [me,setMe]=useState<Me|null>(null);
-  const [rows,setRows]=useState<Assignment[]>([]);
-  const [loading,setLoading]=useState(true);
-  const [error,setError]=useState<string|null>(null);
-  const [notice,setNotice]=useState<string|null>(null);
-  const [busy,setBusy]=useState<string|null>(null);
-  const [open,setOpen]=useState<string|null>(null);
-  const [photos,setPhotos]=useState<Record<string,string>>({});
-  const [noteDraft,setNoteDraft]=useState<Record<string,string>>({});
-  const [pushState,setPushState]=useState<"unknown"|"unsupported"|"denied"|"on"|"off">("unknown");
-  const [pushBusy,setPushBusy]=useState(false);
+  const flash = (m: string) => { setNotice(m); setTimeout(() => setNotice(null), 3200); };
 
-  const flash=(m:string)=>{ setNotice(m); setTimeout(()=>setNotice(null),3200); };
+  /**
+   * Network first, cache second.
+   *
+   * getUser() deliberately has no offline branch. It calls the auth server, so
+   * when there is no connection it fails, and a failure that looks like "no
+   * user" would bounce a signed-in partner to the login page every time they
+   * opened the app somewhere without signal. Instead the whole load falls back
+   * to the last good snapshot, and the banner says so.
+   */
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    try {
+      const supabase = createClient();
+      const { data: userData, error: userErr } = await supabase.auth.getUser();
+      if (userErr) throw userErr;
+      if (!userData?.user) {
+        // Only a genuine "signed out" redirects. Anything else is a network
+        // problem and falls through to the cache below.
+        setOffline(true);
+        return;
+      }
+      const user = userData.user;
 
-  const load=useCallback(async()=>{
-    setLoading(true);
-    try{
-      const supabase=createClient();
-      const {data:{user}}=await supabase.auth.getUser();
-      if(!user){ router.replace("/portal/login"); return; }
-
-      // Own row only: RLS on team_members permits exactly this.
-      const {data:mine,error:mErr}=await supabase
+      const { data: mine, error: mErr } = await supabase
         .from("team_members")
         .select("id,name,role,email,phone,available,unavailable_note,portal_status,active")
-        .eq("user_id",user.id)
+        .eq("user_id", user.id)
         .limit(1)
         .maybeSingle();
-      if(mErr) throw mErr;
-      if(!mine){ router.replace("/portal/login"); return; }
+      if (mErr) throw mErr;
+      if (!mine) { router.replace("/portal/login"); return; }
       setMe(mine as Me);
+      setOffline(false);
 
-      if((mine as any).portal_status!=="approved"){ setLoading(false); return; }
+      if ((mine as any).portal_status !== "approved") { setLoading(false); return; }
 
-      // The only path to booking data. No bookings policy is granted to members.
-      const {data:list,error:aErr}=await supabase.rpc("my_assignments");
-      if(aErr) throw aErr;
-      setRows((list as Assignment[])||[]);
-    }catch(e:any){ setError(e?.message||"Could not load your jobs."); }
-    finally{ setLoading(false); }
-  },[router]);
+      const { data: list, error: aErr } = await supabase.rpc("my_assignments");
+      if (aErr) throw aErr;
+      const assignments = (list as Assignment[]) || [];
+      setRows(assignments);
 
-  useEffect(()=>{ load(); },[load]);
-
-  const respond=async(id:string,status:string)=>{
-    if(busy) return;
-    setBusy(id); setError(null);
-    try{
-      const res=await fetch("/api/portal/assignment",{
-        method:"PATCH",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({assignment_id:id,status,member_note:noteDraft[id]})
+      // Only a successful read is cached, so the cache can never hold a list
+      // that came from a failed or partial query.
+      await writeSnapshot(user.id, {
+        at: Date.now(),
+        me: mine as unknown as Record<string, unknown>,
+        assignments: assignments as unknown as Record<string, unknown>[],
+        version: "1.0.1",
       });
-      const j=await res.json().catch(()=>({} as any));
-      if(!res.ok) throw new Error(j.error||"Could not update that job.");
-      flash(status==="accepted"?"Job accepted. The MALTO team has been notified."
-          :status==="on_the_way"?"Marked as on the way."
-          :status==="done"?"Nice work. Job closed."
-          :"Job declined.");
-      await load();
-    }catch(err:any){ setError(err?.message||"Could not update that job."); }
-    finally{ setBusy(null); }
+    } catch (e: any) {
+      const message = String(e?.message ?? e);
+      const userId = storedUserId();
+      const snap = userId ? await readSnapshot(userId) : null;
+      if (snap) {
+        setMe((snap.me as unknown as Me) ?? null);
+        setRows((snap.assignments as unknown as Assignment[]) || []);
+        setCachedAt(snap.at);
+        setOffline(true);
+      } else {
+        setError(message || "Could not load your jobs.");
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [router]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setNoteDraft(loadNotes());
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    // Only meaningful in the app: a browser tab on a phone can just reload.
+    if (!isNative()) return;
+    const onOnline = () => void load(true);
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+  }, [load]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(NOTE_KEY, JSON.stringify(noteDraft));
+  }, [noteDraft]);
+
+  const respond = async (id: string, status: string) => {
+    if (busy) return;
+    setBusy(id);
+    setError(null);
+    try {
+      const res = await fetch("/api/portal/assignment", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assignment_id: id, status, member_note: noteDraft[id] }),
+      });
+      const j = await res.json().catch(() => ({} as any));
+      if (!res.ok || j.ok === false) throw new Error(j.error || "Could not save that.");
+      flash(status === "accepted" ? "Job accepted. The MALTO team has been notified." : status === "done" ? "Marked as done. Thank you." : "Job declined.");
+      await load(true);
+    } catch (e: any) {
+      setError(e?.message || "Could not save that.");
+    } finally {
+      setBusy(null);
+    }
   };
 
-  const saveAvailability=async(patch:{available:boolean;unavailable_note:string})=>{
-    if(busy) return;
-    setBusy("me"); setError(null);
-    try{
-      // Only these two columns are member-editable; a trigger blocks the rest.
-      // The filter has to be on id, not user_id: `me` was selected as
+  const saveAvailability = async (patch: { available: boolean; unavailable_note: string }) => {
+    if (busy) return;
+    setBusy("me");
+    setError(null);
+    try {
+      // The filter has to be on id, not user_id: `me` is selected as
       // team_members.id, so matching that value against the user_id column found
       // no rows. Supabase reported no error, so the toggle silently did nothing
       // and showed "Availability updated" every time.
-      const {error:err}=await createClient().from("team_members").update(patch).eq("id",(me as any)?.id);
-      if(err) throw err;
-      await load();
+      const { error: err } = await createClient().from("team_members").update(patch).eq("id", (me as any)?.id);
+      if (err) throw err;
+      await load(true);
       flash("Availability updated.");
-    }catch(err:any){ setError(err?.message||"Could not update your availability."); }
-    finally{ setBusy(null); }
-  };
-
-  const loadPhoto=async(bookingId:string)=>{
-    if(photos[bookingId]) return;
-    try{
-      const res=await fetch("/api/portal/photo",{
-        method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({booking_id:bookingId})
-      });
-      const j=await res.json().catch(()=>({} as any));
-      if(res.ok&&j.url) setPhotos(p=>({...p,[bookingId]:j.url}));
-    }catch{ /* a missing photo is not worth an error banner */ }
-  };
-
-  // --- Push notifications -----------------------------------------------------
-  // Web Push rather than SMS: free, instant, and the only way a part-time
-  // member finds out there is work. Best effort by design, so every failure
-  // here leaves the portal fully usable.
-  const detectPush=useCallback(async()=>{
-    if(typeof window==="undefined"||!("serviceWorker" in navigator)||!("PushManager" in window)){
-      setPushState("unsupported"); return;
+    } catch (err: any) {
+      setError(err?.message || "Could not update your availability.");
+    } finally {
+      setBusy(null);
     }
-    try{
-      const reg=await navigator.serviceWorker.getRegistration("/portal/");
-      if(!reg||!reg.pushManager){
-        setPushState("off"); return;
-      }
-      const sub=await reg.pushManager.getSubscription();
-      setPushState(sub?"on":"off");
-    }catch{ setPushState("off"); }
-  },[]);
-
-  useEffect(()=>{ if(me&&me.portal_status==="approved") detectPush(); },[me,detectPush]);
-
-  const enablePush=async()=>{
-    if(pushBusy) return;
-    setPushBusy(true); setError(null);
-    try{
-      if(!("Notification" in window)) throw new Error("This browser cannot show notifications.");
-      const perm=await Notification.requestPermission();
-      if(perm!=="granted"){ setPushState("denied"); throw new Error("Notifications were blocked. Allow them in your browser settings to get job alerts."); }
-
-      const keyRes=await fetch("/api/portal/push");
-      const keyJson=await keyRes.json().catch(()=>({} as any));
-      if(!keyRes.ok||!keyJson.publicKey) throw new Error(keyJson.error||"Push is not available right now.");
-
-      const reg=await navigator.serviceWorker.register("/portal/sw.js",{scope:"/portal/"});
-      await navigator.serviceWorker.ready;
-
-      const existing=await reg.pushManager.getSubscription();
-      const sub=existing??await reg.pushManager.subscribe({
-        userVisibleOnly:true,
-        applicationServerKey:urlBase64ToUint8Array(keyJson.publicKey),
-      });
-      if(!sub) throw new Error("Could not subscribe this device.");
-
-      const res=await fetch("/api/portal/push",{
-        method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({...sub.toJSON(),user_agent:navigator.userAgent})
-      });
-      if(!res.ok){ const j=await res.json().catch(()=>({} as any)); throw new Error(j.error||"Could not save your subscription."); }
-      setPushState("on");
-      flash("Notifications are on. You will be alerted when a job is assigned.");
-    }catch(err:any){
-      setError(err?.message||"Could not turn on notifications.");
-    }finally{ setPushBusy(false); }
   };
 
-  const disablePush=async()=>{
-    if(pushBusy) return;
-    setPushBusy(true);
-    try{
-      const reg=await navigator.serviceWorker.getRegistration("/portal/");
-      const sub=await reg?.pushManager.getSubscription();
-      if(sub){
-        await fetch("/api/portal/push",{
-          method:"DELETE",headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({endpoint:sub.endpoint})
-        });
-        await sub.unsubscribe();
-      }
-      setPushState("off");
-    }catch{ setPushState("off"); }
-    finally{ setPushBusy(false); }
-  };
-
-  const signOut=async()=>{
-    try{ await createClient().auth.signOut(); }catch{ /* ignore */ }
-    router.replace("/portal/login");
-    router.refresh();
+  const loadPhoto = async (bookingId: string) => {
+    if (photos[bookingId]) return;
+    try {
+      const res = await fetch("/api/portal/photo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ booking_id: bookingId }),
+      });
+      const j = await res.json().catch(() => ({} as any));
+      if (j.url) setPhotos((p) => ({ ...p, [bookingId]: j.url }));
+    } catch {
+      // A missing photo is not worth an error banner.
+    }
   };
 
   // A cancelled booking overrides the assignment: the admin withdrew the job,
   // so the member must not be prompted to accept it.
-  const eff=(r:Assignment)=>r.booking_status==="Cancelled"?"cancelled":r.status;
+  const eff = (r: Assignment) => (r.booking_status === "Cancelled" ? "cancelled" : r.status);
 
-  const {active,upcoming,history}=useMemo(()=>{
-    const isOpen=(r:Assignment)=>{
-      const s=eff(r);
-      return s==="pending"||s==="accepted"||s==="on_the_way";
+  const { active, upcoming, history } = useMemo(() => {
+    const isOpen = (r: Assignment) => {
+      const s = eff(r);
+      return s === "pending" || s === "accepted" || s === "on_the_way";
     };
     return {
-      active:rows.filter(r=>isOpen(r)),
-      upcoming:rows.filter(r=>!isOpen(r)&&eff(r)!=="cancelled"),
-      history:rows.filter(r=>eff(r)==="done"||eff(r)==="declined"||eff(r)==="cancelled"),
+      active: rows.filter(isOpen),
+      upcoming: rows.filter((r) => !isOpen(r) && eff(r) !== "cancelled"),
+      history: rows.filter((r) => ["done", "declined", "cancelled"].includes(eff(r))),
     };
-  },[rows]);
+  }, [rows]);
 
-  if(loading){
-    return <main className="portal-page"><div className="portal-shell"><p className="lead">Loading your jobs…</p></div></main>;
+  const fallback = useOfflineFallback(false);
+
+  if (loading && !rows.length && !offline) {
+    return (
+      <PortalChrome active="jobs">
+        <p className="portal-lead" style={{ paddingTop: 24 }}>Loading your jobs…</p>
+      </PortalChrome>
+    );
   }
 
-  if(me&&me.portal_status!=="approved"){
-    return <main className="portal-page">
-      <header className="header"><div className="container nav">
-        <Link href="/" className="logo">MALTO<small>CLEANING SERVICES</small></Link>
-        <button className="small" onClick={signOut} style={{background:"none",border:0,cursor:"pointer",font:"inherit"}}>Sign out</button>
-      </div></header>
-      <div className="portal-shell">
-        <div className="eyebrow">TEAM PORTAL</div>
-        <h2>Hi {me.name.split(" ")[0]}.</h2>
-        <div className="notice">
-          <strong>Your account is waiting for approval.</strong><br/>
-          MALTO still needs to approve your account before any job shows up here. You do not need to do anything else.
+  if (me && me.portal_status !== "approved") {
+    return (
+      <PortalChrome active="jobs" name={me.name}>
+        <h1 className="portal-title">Hi {me.name.split(" ")[0]}.</h1>
+        <div className="portal-notice info">
+          <strong>Your account is waiting for approval.</strong>
+          <br />
+          MALTO still needs to approve your account before any job shows up here. You do not need to do
+          anything else.
         </div>
-        <p className="small muted">Signed in as {me.email}</p>
-      </div>
-    </main>;
+        <p className="portal-hint">Signed in as {me.email}</p>
+      </PortalChrome>
+    );
   }
 
-  return <main className="portal-page">
-    <header className="header"><div className="container nav">
-      <Link href="/" className="logo">MALTO<small>CLEANING SERVICES</small></Link>
-      <span style={{display:"flex",gap:16,alignItems:"center"}}>
-        <span className="small muted">{me?.name}</span>
-        <button className="small" onClick={signOut} style={{background:"none",border:0,cursor:"pointer",font:"inherit"}}>Sign out</button>
-      </span>
-    </div></header>
+  // Offline with nothing cached: there is no honest way to show a job list, so
+  // this is a real screen rather than an empty list that looks like bad luck.
+  if (offline && !rows.length && !cachedAt) {
+    return (
+      <PortalChrome active="jobs" name={me?.name}>
+        <OfflineScreen at={0} busy={fallback.busy} onRetry={() => window.location.reload()} />
+      </PortalChrome>
+    );
+  }
 
-    <div className="portal-shell">
-      {error&&<div className="notice" style={{background:"#FBE9E7",color:"#8A2C1D"}}>{error}</div>}
-      {notice&&<div className="notice">{notice}</div>}
+  const pendingCount = active.filter((r) => eff(r) === "pending").length;
 
-      <div className="eyebrow">TEAM PORTAL</div>
-      <h2>Your jobs.</h2>
+  return (
+    <PortalChrome active="jobs" name={me?.name}>
+      <PushRegistration />
+      {offline && cachedAt ? <OfflineBanner at={cachedAt} stale={Date.now() - cachedAt > 12 * 3600_000} /> : null}
+      {!offline && isNative() ? <PushPrompt /> : null}
 
-      {/* Notifications first: a member who does not know a job exists will
-          never accept it, so this is what makes the rest of the page work. */}
-      <div className="panel" style={{marginTop:22,borderLeft:"4px solid var(--sage)"}}>
-        <div className="panel-head"><strong>Job alerts</strong>
-          <span className={"badge"+(pushState==="on"?" on":"")}>
-            {pushState==="on"?"On":pushState==="denied"?"Blocked":pushState==="unsupported"?"Not supported":"Off"}
-          </span>
-        </div>
-        {pushState==="unsupported"&&(
-          <p className="small muted" style={{margin:0}}>
-            This browser cannot show notifications. You can still check this page for your jobs.
-          </p>
-        )}
-        {pushState==="denied"&&(
-          <p className="small" style={{margin:0,color:"#8A6420"}}>
-            Notifications are blocked in your browser settings. Turn them back on for this site to get job alerts.
-          </p>
-        )}
-        {pushState==="unknown"&&<p className="small muted" style={{margin:0}}>Checking your device…</p>}
-        {pushState==="off"&&(
-          <>
-            <p className="small muted" style={{margin:"0 0 14px"}}>
-              Get an alert the moment MALTO assigns you a job, instead of having to check this page.
-            </p>
-            <button className="btn" disabled={pushBusy} style={{minHeight:42,opacity:pushBusy?.6:1}} onClick={enablePush}>
-              {pushBusy?"TURNING ON…":"TURN ON JOB ALERTS"}
-            </button>
-            <p className="small muted" style={{margin:"12px 0 0"}}>
-              On an iPhone, add this page to your Home Screen first — Apple only allows alerts for apps you have installed.
-            </p>
-          </>
-        )}
-        {pushState==="on"&&(
-          <>
-            <p className="small muted" style={{margin:"0 0 14px"}}>
-              You will be alerted on this device when a job is assigned. This page stays available if you miss one.
-            </p>
-            <button className="btn secondary" disabled={pushBusy} style={{minHeight:42,opacity:pushBusy?.6:1}} onClick={disablePush}>
-              {pushBusy?"TURNING OFF…":"TURN OFF ALERTS"}
-            </button>
-          </>
-        )}
-      </div>
+      <div className="portal-shell" style={{ padding: 0 }}>
+        {error ? <div className="portal-notice error">{error}</div> : null}
+        {notice ? <div className="portal-notice info">{notice}</div> : null}
 
-      {/* Availability: the single most useful thing for a part-time crew, and
-          it is what stops the admin assigning you while you are unavailable. */}
-      <div className="panel" style={{marginTop:22}}>
-        <div className="panel-head"><strong>Your availability</strong>
-          <span className={"badge"+(me?.available?" on":"")}>{me?.available?"Available":"Unavailable"}</span>
-        </div>
-        <p className="small muted" style={{margin:"0 0 14px"}}>
-          {me?.available
-            ? "You are listed as available and can be assigned jobs."
-            : "You will not appear as assignable while this is on."}
+        <h1 className="portal-title">
+          {pendingCount > 0 ? `${pendingCount} job${pendingCount === 1 ? "" : "s"} waiting` : "Your jobs"}
+        </h1>
+        <p className="portal-lead">
+          {active.length || upcoming.length
+            ? `Last checked ${new Date().toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" })}`
+            : "Nothing assigned to you right now."}
         </p>
-        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-          <button className="btn" disabled={busy==="me"||me?.available} style={{minHeight:42,opacity:me?.available?.55:1}}
-            onClick={()=>saveAvailability({available:true,unavailable_note:me?.unavailable_note||""})}>
-            I&apos;m available
-          </button>
-          <button className="btn secondary" disabled={busy==="me"||!me?.available} style={{minHeight:42,opacity:!me?.available?.55:1}}
-            onClick={()=>saveAvailability({available:false,unavailable_note:me?.unavailable_note||"Unavailable"})}>
-            I&apos;m unavailable
-          </button>
-        </div>
-        {me&&!me.available&&(
-          <div className="field" style={{marginTop:14}}>
-            <label>Reason (optional)</label>
-            <input defaultValue={me.unavailable_note} placeholder="Sick, other job, etc."
-              onBlur={e=>{ if(e.target.value!==me.unavailable_note) saveAvailability({available:false,unavailable_note:e.target.value}); }}/>
+
+        {/* The job list comes before the settings panels. The old order put
+            notification state and an availability toggle above the jobs, which
+            pushed the only thing that needs an answer, ACCEPT JOB, roughly a
+            screen down on a phone. */}
+        {[...active, ...upcoming].length === 0 ? (
+          <div className="portal-empty">
+            <h3>No jobs yet</h3>
+            <p>They appear here the moment MALTO assigns one, and you will get an alert on this phone.</p>
+          </div>
+        ) : (
+          <div className="portal-joblist">
+            {[...active, ...upcoming].map((r) => {
+              const isOpen = open === r.assignment_id;
+              const view = eff(r);
+              const actions = NEXT[view] ?? [];
+              const mapHref = r.adress
+                ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([r.adress, r.city, r.province].filter(Boolean).join(", "))}`
+                : "";
+              return (
+                <article className="portal-job" key={r.assignment_id}>
+                  <button
+                    className="portal-job-head"
+                    type="button"
+                    aria-expanded={isOpen}
+                    onClick={() => {
+                      setOpen(isOpen ? null : r.assignment_id);
+                      if (!isOpen) void loadPhoto(r.booking_id);
+                    }}
+                  >
+                    <span style={{ minWidth: 0 }}>
+                      <span className="portal-job-ref">{r.booking_ref || "Job"}</span>
+                      <span className="portal-job-service">{r.services || "Cleaning"}</span>
+                      <span className="portal-job-when">
+                        {fmtDate(r.date)}{r.time ? ` · ${r.time}` : ""}
+                      </span>
+                    </span>
+                    <span className={"badge" + (["pending", "accepted", "on_the_way"].includes(view) ? " on" : "")}>
+                      {STATUS_LABEL[view] ?? view}
+                    </span>
+                  </button>
+
+                  {isOpen ? (
+                    <div className="portal-job-body">
+                      {view === "cancelled" ? (
+                        <div className="portal-notice error">This job was cancelled by MALTO. Nothing to do.</div>
+                      ) : null}
+                      {r.note ? (
+                        <div className="portal-notice info">
+                          <strong>Note from the team:</strong> {r.note}
+                        </div>
+                      ) : null}
+
+                      <dl className="portal-facts">
+                        <div>
+                          <dt>Customer</dt>
+                          <dd>{r.names || "—"}</dd>
+                          {r.phone ? <dd><a href={`tel:${r.phone}`}>Call {r.phone}</a></dd> : null}
+                          {r.email ? <dd><a href={`mailto:${r.email}`}>Email {r.email}</a></dd> : null}
+                        </div>
+                        <div>
+                          <dt>Address</dt>
+                          <dd>{[r.adress, r.city, r.province].filter(Boolean).join(", ") || "—"}</dd>
+                          {r.landmark ? <dd className="portal-hint">Landmark: {r.landmark}</dd> : null}
+                          {mapHref ? <dd><a href={mapHref} target="_blank" rel="noreferrer">Open in Maps</a></dd> : null}
+                        </div>
+                        <div>
+                          <dt>Property</dt>
+                          <dd>{r.property || "—"}</dd>
+                          <dd className="portal-hint">
+                            {[r.sqm ? `${r.sqm} sqm` : null, r.bedrooms ? `${r.bedrooms} bed` : null, r.bathrooms ? `${r.bathrooms} bath` : null]
+                              .filter(Boolean).join(" · ")}
+                          </dd>
+                          {r.condition ? <dd className="portal-hint">Condition: {r.condition}</dd> : null}
+                        </div>
+                        <div>
+                          <dt>Scope</dt>
+                          <dd>{r.areas || "—"}</dd>
+                          {r.materials ? <dd className="portal-hint">Materials: {r.materials}</dd> : null}
+                          {r.scope_notes ? <dd className="portal-hint">{r.scope_notes}</dd> : null}
+                        </div>
+                        {r.access ? (
+                          <div>
+                            <dt>Access</dt>
+                            <dd>{r.access}</dd>
+                          </div>
+                        ) : null}
+                        {r.price != null ? (
+                          <div>
+                            <dt>Final price</dt>
+                            <dd>{money(r.price)}</dd>
+                          </div>
+                        ) : null}
+                      </dl>
+
+                      {photos[r.booking_id] ? (
+                        <img src={photos[r.booking_id]} alt="Customer photo of the property" className="portal-photo" />
+                      ) : null}
+
+                      <div className="portal-field">
+                        <label htmlFor={`note-${r.assignment_id}`}>Your note (optional)</label>
+                        <input
+                          id={`note-${r.assignment_id}`}
+                          className="portal-input"
+                          value={noteDraft[r.assignment_id] ?? r.member_note}
+                          onChange={(e) => setNoteDraft((p) => ({ ...p, [r.assignment_id]: e.target.value }))}
+                          placeholder="e.g. I will bring my own vacuum"
+                        />
+                      </div>
+
+                      {actions.length > 0 ? (
+                        <div className="portal-jobactions">
+                          {actions.map((a) => (
+                            <button
+                              key={a.to}
+                              type="button"
+                              className={"portal-btn" + (a.to === "declined" ? " secondary" : "")}
+                              disabled={busy === r.assignment_id || offline}
+                              onClick={() => respond(r.assignment_id, a.to)}
+                            >
+                              {busy === r.assignment_id ? "Saving…" : a.label}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+
+                      <p className="portal-hint">
+                        Assigned {fmtWhen(r.assigned_at)}
+                        {r.responded_at ? ` · Answered ${fmtWhen(r.responded_at)}` : ""}
+                        {r.done_at ? ` · Done ${fmtWhen(r.done_at)}` : ""}
+                      </p>
+                    </div>
+                  ) : null}
+                </article>
+              );
+            })}
           </div>
         )}
-      </div>
 
-      {active.length===0&&upcoming.length===0&&
-        <div className="panel"><p className="text" style={{margin:0}}>No jobs assigned to you yet. They will appear here as soon as MALTO assigns one.</p></div>}
-
-      {[...active,...upcoming].map(r=>{
-        const isOpen=open===r.assignment_id;
-        const view=eff(r);
-        const actions=NEXT[view]??[];
-        const mapHref=r.adress
-          ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([r.adress,r.city,r.province].filter(Boolean).join(", "))}`
-          : "";
-        return <div className="jobcard" key={r.assignment_id}>
-          <div className="jobcard-top" onClick={()=>{ setOpen(isOpen?null:r.assignment_id); if(!isOpen) loadPhoto(r.booking_id); }}>
-            <div style={{minWidth:0,flex:1}}>
-              <div className="jobcard-ref">{r.booking_ref||"Job"}</div>
-              <div className="jobcard-service">{r.services||"Cleaning"}</div>
-              <div className="small muted">{fmtDate(r.date)}{r.time?` · ${r.time}`:""}</div>
-            </div>
-            <span className={"badge"+((view==="pending"||view==="accepted"||view==="on_the_way")?" on":"")}>
-              {STATUS_LABEL[view]??view}
-            </span>
+        {/* Availability: the single most useful thing for a part-time crew, and
+            what stops the admin assigning a job while you are unavailable. */}
+        <div className="portal-panel" style={{ marginTop: 20 }}>
+          <div className="portal-panel-head">
+            <strong>Your availability</strong>
+            <span className={"badge" + (me?.available ? " on" : "")}>{me?.available ? "Available" : "Unavailable"}</span>
           </div>
-
-          {isOpen&&<div className="jobcard-body">
-            {view==="cancelled"&&(
-              <div className="notice" style={{margin:"0 0 18px",background:"#FBE9E7",color:"#8A2C1D"}}>
-                This job was cancelled by MALTO. Nothing to do.
-              </div>
-            )}
-            {r.note&&<div className="notice" style={{margin:"0 0 18px"}}><strong>Note from the team:</strong> {r.note}</div>}
-
-            <div className="jobgrid">
-              <div className="jobgrid-item">
-                <span className="joblabel">Customer</span>
-                <strong>{r.names||"—"}</strong>
-                {r.phone&&<a className="joblink" href={`tel:${r.phone}`}>Call {r.phone}</a>}
-                {r.email&&<a className="joblink" href={`mailto:${r.email}`}>Email {r.email}</a>}
-              </div>
-              <div className="jobgrid-item">
-                <span className="joblabel">Address</span>
-                <strong>{[r.adress,r.city,r.province].filter(Boolean).join(", ")||"—"}</strong>
-                {r.landmark&&<span className="small muted">Landmark: {r.landmark}</span>}
-                {mapHref&&<a className="joblink" href={mapHref} target="_blank" rel="noreferrer">Open in Maps</a>}
-              </div>
-              <div className="jobgrid-item">
-                <span className="joblabel">Property</span>
-                <strong>{r.property||"—"}</strong>
-                <span className="small muted">
-                  {r.sqm?`${r.sqm} sqm`:""}{r.bedrooms?` · ${r.bedrooms} bed`:""}{r.bathrooms?` · ${r.bathrooms} bath`:""}
-                </span>
-                {r.condition&&<span className="small muted">Condition: {r.condition}</span>}
-              </div>
-              <div className="jobgrid-item">
-                <span className="joblabel">Scope</span>
-                <strong>{r.areas||"—"}</strong>
-                {r.materials&&<span className="small muted">Materials: {r.materials}</span>}
-                {r.scope_notes&&<span className="small muted">{r.scope_notes}</span>}
-              </div>
-              {r.access&&<div className="jobgrid-item">
-                <span className="joblabel">Access</span>
-                <span className="small">{r.access}</span>
-              </div>}
-              {r.price!=null&&<div className="jobgrid-item">
-                <span className="joblabel">Final price</span>
-                <strong>{money(r.price)}</strong>
-              </div>}
+          <p className="portal-hint" style={{ marginBottom: 12 }}>
+            {me?.available
+              ? "You are listed as available and can be assigned jobs."
+              : "You will not appear as assignable while this is on."}
+          </p>
+          <div className="portal-btn-row">
+            <button
+              type="button"
+              className="portal-btn"
+              disabled={busy === "me" || me?.available || offline}
+              onClick={() => saveAvailability({ available: true, unavailable_note: me?.unavailable_note || "" })}
+            >
+              I&apos;m available
+            </button>
+            <button
+              type="button"
+              className="portal-btn secondary"
+              disabled={busy === "me" || !me?.available || offline}
+              onClick={() => saveAvailability({ available: false, unavailable_note: me?.unavailable_note || "Unavailable" })}
+            >
+              I&apos;m unavailable
+            </button>
+          </div>
+          {me && !me.available ? (
+            <div className="portal-field" style={{ marginTop: 14, marginBottom: 0 }}>
+              <label htmlFor="unavailable-note">Reason (optional)</label>
+              <input
+                id="unavailable-note"
+                className="portal-input"
+                defaultValue={me.unavailable_note}
+                placeholder="Sick, other job, etc."
+                onBlur={(e) => {
+                  if (e.target.value !== me.unavailable_note) {
+                    void saveAvailability({ available: false, unavailable_note: e.target.value });
+                  }
+                }}
+              />
             </div>
-
-            {photos[r.booking_id]&&(
-              <img src={photos[r.booking_id]} alt="Customer photo of the property"
-                className="jobphoto"/>
-            )}
-
-            <div className="field" style={{marginTop:18}}>
-              <label>Your note (optional)</label>
-              <input value={noteDraft[r.assignment_id]??r.member_note}
-                onChange={e=>setNoteDraft(p=>({...p,[r.assignment_id]:e.target.value}))}
-                placeholder="e.g. I will bring my own vacuum"/>
-            </div>
-
-            {actions.length>0&&(
-              <div className="jobactions">
-                {actions.map(a=>(
-                  <button key={a.to}
-                    className={"btn"+(a.to==="declined"?" secondary":"")}
-                    disabled={busy===r.assignment_id}
-                    style={{minHeight:46,opacity:busy===r.assignment_id?.6:1}}
-                    onClick={()=>respond(r.assignment_id,a.to)}>
-                    {busy===r.assignment_id?"SAVING…":a.label}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            <div className="small muted" style={{marginTop:14}}>
-              Assigned {fmtWhen(r.assigned_at)}{r.responded_at?` · Answered ${fmtWhen(r.responded_at)}`:""}{r.done_at?` · Done ${fmtWhen(r.done_at)}`:""}
-            </div>
-          </div>}
-        </div>;
-      })}
-
-      {history.length>0&&<>
-        <div className="eyebrow" style={{marginTop:34}}>PAST JOBS</div>
-        <div className="table">
-          <table>
-            <thead><tr><th>Ref</th><th>Service</th><th>Date</th><th>Status</th></tr></thead>
-            <tbody>{history.map(r=>(
-              <tr key={r.assignment_id}>
-                <td className="small">{r.booking_ref}</td>
-                <td className="small">{r.services}</td>
-                <td className="small">{fmtDate(r.date)}</td>
-                <td className="small">{STATUS_LABEL[eff(r)]??eff(r)}</td>
-              </tr>))}
-            </tbody>
-          </table>
+          ) : null}
         </div>
-      </>}
+
+        {/* Past jobs were a four column table inside overflow:auto, which on a
+            phone is a horizontal scroll with no affordance telling you it is
+            there. Cards work at every width. */}
+        {history.length > 0 ? (
+          <>
+            <h2 className="portal-title" style={{ fontSize: 18, marginTop: 28 }}>Past jobs</h2>
+            <div className="portal-joblist">
+              {history.map((r) => (
+                <div className="portal-job" key={r.assignment_id} style={{ padding: "var(--s3) var(--s4)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div className="portal-job-ref">{r.booking_ref}</div>
+                      <div style={{ fontSize: 15 }}>{r.services}</div>
+                      <div className="portal-hint">{fmtDate(r.date)}</div>
+                    </div>
+                    <span className="badge">{STATUS_LABEL[eff(r)] ?? eff(r)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : null}
+      </div>
+    </PortalChrome>
+  );
+}
+
+/**
+ * Only shown inside the app, and only if the device token has not been stored.
+ * In a browser this whole block is absent, because push there is web push and is
+ * handled by the old panel further down the portal.
+ */
+function PushPrompt() {
+  const [show, setShow] = useState(false);
+
+  useEffect(() => {
+    // Give the registration component a moment to succeed before telling the
+    // partner about it, so a person who already granted permission is not asked
+    // about something that is already on.
+    const t = setTimeout(() => {
+      try {
+        const cap = (window as any).Capacitor;
+        if (!cap?.isNativePlatform?.()) return;
+        const Push = (window as any).PushNotificationsPlugin;
+        void (async () => {
+          try {
+            const status = await Push?.checkPermissions?.();
+            setShow(status?.receive !== "granted");
+          } catch {
+            /* nothing to say */
+          }
+        })();
+      } catch {
+        /* nothing to say */
+      }
+    }, 2500);
+    return () => clearTimeout(t);
+  }, []);
+
+  if (!show) return null;
+  return (
+    <div className="portal-panel portal-panel-accent">
+      <div className="portal-panel-head"><strong>Job alerts</strong></div>
+      <p className="portal-hint" style={{ marginBottom: 12 }}>
+        Turn on alerts and you will hear a chime the moment MALTO assigns you a job, instead of having to
+        open this app.
+      </p>
+      <button
+        type="button"
+        className="portal-btn block"
+        onClick={async () => {
+          try {
+            const Push = (await import("@capacitor/push-notifications")).PushNotifications;
+            let p = await Push.checkPermissions();
+            if (p.receive === "prompt") p = await Push.requestPermissions();
+            setShow(p.receive !== "granted");
+          } catch {
+            setShow(false);
+          }
+        }}
+      >
+        Turn on job alerts
+      </button>
+      <p className="portal-hint" style={{ marginTop: 10 }}>
+        Blocked in your phone settings? Android, then Apps, then MALTO Partner, then Notifications.
+      </p>
     </div>
-  </main>;
+  );
 }

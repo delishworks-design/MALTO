@@ -1,8 +1,9 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/utils/supabase/client";
+import { isNative } from "@/lib/is-native";
 
 export default function PortalLogin(){
   const router=useRouter();
@@ -10,6 +11,12 @@ export default function PortalLogin(){
   const [password,setPassword]=useState("");
   const [error,setError]=useState<string|null>(null);
   const [busy,setBusy]=useState(false);
+  // In the app, the logo goes back to the portal and there is no way out to the
+  // marketing site: the fence treats it as a dead end and pulls them back. In a
+  // browser, "Back to website" is a genuine escape hatch for someone who
+  // followed a link to the wrong place.
+  const [native,setNative]=useState(false);
+  useEffect(()=>{ setNative(isNative()); },[]);
 
   const signIn=async(e:React.FormEvent)=>{
     e.preventDefault();
@@ -30,8 +37,10 @@ export default function PortalLogin(){
 
   return <main className="portal-page">
     <header className="header"><div className="container nav">
-      <Link href="/" className="logo">MALTO<small>CLEANING SERVICES</small></Link>
-      <Link className="small" href="/">Back to website</Link>
+      <Link href={native?"/portal":"/"} className="logo">MALTO<small>CLEANING SERVICES</small></Link>
+      {native
+        ? <span className="small muted">Partner app</span>
+        : <Link className="small" href="/">Back to website</Link>}
     </div></header>
 
     <div className="portal-shell">
@@ -57,9 +66,16 @@ export default function PortalLogin(){
         </div>
       </form>
 
-      <p className="small muted" style={{marginTop:24}}>
-        No account yet? <Link href="/portal/register" style={{textDecoration:"underline"}}>Create one here</Link>.
-      </p>
+      {native ? (
+        <p className="small muted" style={{marginTop:24}}>
+          No account yet? <Link href="/portal/register" style={{textDecoration:"underline"}}>Create one here</Link>.
+        </p>
+      ) : (
+        <p className="small muted" style={{marginTop:24}}>
+          No account yet? Partner registration is done in the app.{" "}
+          <Link href="/join#join" style={{textDecoration:"underline"}}>Get the partner app</Link>.
+        </p>
+      )}
     </div>
   </main>;
 }

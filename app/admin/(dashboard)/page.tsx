@@ -64,7 +64,10 @@ export default function Bookings(){
   const [priceDraft,setPriceDraft]=useState<Record<string,string>>({});
   const [noteDraft,setNoteDraft]=useState<Record<string,string>>({});
   const [lastUpdated,setLastUpdated]=useState<number>(0);
-  const [,setTick]=useState(0);
+  // A booking that arrived while this tab was open. Drives the banner and the
+  // badge on the Bookings tab, because a new row at the top of a long list that
+  // somebody has scrolled past is invisible.
+  const [newBooking,setNewBooking]=useState<{ref:string;services:string;at:number}|null>(null);
 
   const [search,setSearch]=useState("");
   const [statusFilter,setStatusFilter]=useState<string>("All");
@@ -92,20 +95,55 @@ export default function Bookings(){
 
   useEffect(()=>{ load(); },[load]);
 
+  /**
+   * A safety net for a missed realtime event, and the only reason setTick
+   * existed. It re-ran nothing: the interval bumped a counter that no effect, no
+   * memo and no render read, so every 30 seconds it cost a wake-up and
+   * refreshed nothing. The polling is kept, because a subscription can silently
+   * stop delivering and an admin who is looking at a list of bookings cannot
+   * tell the difference between "no new bookings" and "the socket died".
+   *
+   * It only polls while the tab is visible. A background tab is usually an open
+   * admin panel on a second screen, and re-reading every booking row every 30
+   * seconds forever is how a Supabase quota disappears.
+   */
   useEffect(()=>{
-    const id=setInterval(()=>setTick(x=>x+1),30000);
+    const id=setInterval(()=>{
+      if (typeof document !== "undefined" && document.visibilityState === "visible") {
+        void load(true);
+      }
+    },30000);
     return ()=>clearInterval(id);
-  },[]);
+  },[load]);
 
   useEffect(()=>{
     const supabase=createClient();
     const channel=supabase.channel("admin-bookings");
     const refresh=()=>{ void load(true); };
-    channel.on("postgres_changes",{event:"INSERT",schema:"public",table:"bookings"},refresh);
+    // An INSERT is a new booking. It gets a banner, because a row appearing at
+    // the top of a scrolled-away list is not something anybody notices, and the
+    // whole reason the realtime channel is here is to catch a booking the moment
+    // it comes in.
+    const onNew=(payload:{new:Record<string,unknown>})=>{
+      const row=payload?.new;
+      if(row?.booking_ref||row?.services||row?.names){
+        setNewBooking({ ref:String(row.booking_ref||"New booking"), services:String(row.services||""), at:Date.now() });
+      }
+      void load(true);
+    };
+    channel.on("postgres_changes",{event:"INSERT",schema:"public",table:"bookings"},onNew);
     channel.on("postgres_changes",{event:"UPDATE",schema:"public",table:"bookings"},refresh);
     channel.subscribe();
     return ()=>{ void supabase.removeChannel(channel); };
   },[load]);
+
+  // A realtime payload can arrive while the tab is in the background, and a
+  // notification is the one thing that should reach a person who is not looking.
+  useEffect(()=>{
+    if (!newBooking) return;
+    const id=setTimeout(()=>setNewBooking(null),15000);
+    return ()=>clearTimeout(id);
+  },[newBooking]);
 
   const kpis=useMemo(()=>{
     const today=toISO(new Date());
@@ -398,6 +436,27 @@ export default function Bookings(){
   return <>
     {error&&<div className="notice" style={{background:"#FBE9E7",color:"#8A2C1D"}}>{error}</div>}
     {notice&&<div className="notice">{notice}</div>}
+
+    {newBooking&&(
+      <div className="notice" style={{
+        background:"var(--softsage,#E8F0EA)", color:"#2C4B39",
+        borderLeft:"4px solid var(--sage)", display:"flex", justifyContent:"space-between",
+        gap:12, alignItems:"center", flexWrap:"wrap",
+      }}>
+        <span>
+          <strong>New booking.</strong>{" "}
+          {newBooking.ref}{newBooking.services?` · ${newBooking.services}`:""}
+        </span>
+        <button className="linkbtn" onClick={()=>{
+          setNewBooking(null);
+          setSearch(newBooking.ref);
+          setStatusFilter("All");
+          window.scrollTo({ top:0, behavior:"smooth" });
+        }}>
+          Show it
+        </button>
+      </div>
+    )}
 
     <div className="eyebrow">DASHBOARD</div>
     <h1>Operations overview.</h1>
