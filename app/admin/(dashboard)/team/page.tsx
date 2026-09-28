@@ -61,6 +61,35 @@ export default function TeamAdmin() {
   const [acctField, setAcctField] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
+  /**
+   * Rejecting closes the sign-in rather than removing the profile.
+   *
+   * Deleting the login would cascade: team_members.user_id has ON DELETE SET
+   * NULL, so the row would look unclaimed and the applicant could register again
+   * the same evening. Banning keeps the address taken, so the rejection holds,
+   * and the profile plus the agreement they signed are left as a record.
+   */
+  const rejectPartner = async (m: Member) => {
+    if (busy) return;
+    if (!confirm(
+      `Reject ${m.name}?\n\nThey will not be able to sign in to the app, and they will be told their registration was not approved. Their profile and the agreement they signed are kept as a record.`
+    )) return;
+    setBusy(m.id); setError(null);
+    try{
+      const res = await fetch("/api/admin/reject-partner", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ partner_id: m.id }),
+      });
+      const j = await res.json().catch(()=>({} as any));
+      if(!res.ok || j.ok===false) throw new Error(j.error || "Could not reject them.");
+      flash(j.banned
+        ? `${m.name} was rejected. Their sign-in is closed.`
+        : `${m.name} was rejected. They had no sign-in yet, so there was nothing to close.`);
+      await load();
+    }catch(e:any){ setError(e?.message || "Could not reject them."); }
+    finally { setBusy(null); }
+  };
+
   const createAccount = async (m: Member) => {
     if (busy) return;
     const email = (acctEmail[m.id] ?? m.email ?? "").trim();
@@ -467,9 +496,11 @@ export default function TeamAdmin() {
             <button className="btn" style={{ minHeight: 38 }} disabled={busy === m.id} onClick={() => setPortal(m, "approved")}>
               {busy === m.id ? "…" : "APPROVE"}
             </button>
-            <button className="btn secondary" style={{ minHeight: 38 }} disabled={busy === m.id} onClick={() => setPortal(m, "blocked")}>
-              REJECT
-            </button>
+            {m.portal_status === "rejected"
+              ? <span className="badge">Rejected</span>
+              : <button className="btn secondary" style={{ minHeight: 38 }} disabled={busy === m.id} onClick={() => rejectPartner(m)}>
+                  REJECT
+                </button>}
           </div>
         ))}
       </div>;

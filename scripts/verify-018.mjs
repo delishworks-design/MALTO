@@ -127,7 +127,36 @@ const env = loadEnv();
   check("partner can read own weekly hours", h.total, h.total);
   check("weekly hours stay admin-only to change (no UPDATE policy)", await policyCount("partner_availability_rules", "UPDATE"), 0);
 
-  // ---- 5. the account link and approval status stay untouchable by trigger
+  // ---- 5. a rejection actually closed the sign-in
+  //
+  // The two halves of a rejection are the status and the ban, and they can
+  // disagree. A partner whose status says rejected but whose token still
+  // validates would be shut out of the portal, told they are waiting for
+  // approval, and able to sign in forever. The endpoint reports a partial
+  // failure for that, and this asserts it never happened silently.
+  const rejection = await sql(`
+    select
+      count(*) filter (where m.portal_status = 'rejected')::int as rejected_rows,
+      count(*) filter (
+        where m.portal_status = 'rejected'
+          and (u.banned_until is null or u.banned_until <= now())
+      )::int as rejected_but_able_to_sign_in,
+      count(*) filter (where m.portal_status = 'rejected' and m.user_id is null)::int as rejected_without_login
+    from public.team_members m
+    left join auth.users u on u.id = m.user_id;
+  `);
+  const rj = rejection[rejection.length - 1];
+  check(
+    "no rejected partner can still sign in",
+    rj.rejected_but_able_to_sign_in,
+    0
+  );
+  if (rj.rejected_but_able_to_sign_in > 0) {
+    console.log(`        ${rj.rejected_but_able_to_sign_in} partner(s) are marked rejected but their login still works.`);
+  }
+  console.log(`  (rejected: ${rj.rejected_rows} total, ${rj.rejected_without_login} never had a login)`);
+
+  // ---- 6. the account link and approval status stay untouchable by trigger
   const guard = await sql(`
     select tgname, tgenabled from pg_trigger
     where tgrelid = 'public.team_members'::regclass and not tgisinternal;`);

@@ -9,6 +9,8 @@ import { OfflineBanner, OfflineScreen, useOfflineFallback } from "@/components/p
 import { isNative } from "@/lib/is-native";
 import { cacheAge, readSnapshot, writeSnapshot } from "@/lib/portal-cache";
 import { storedUserId } from "@/lib/session";
+import { classify, isNetworkFailure, type IdentityResult } from "@/lib/portal-identity";
+import { PortalIdentityScreen } from "@/components/portal/PortalIdentityScreen";
 
 /** The columns my_assignments() is allowed to return. admin_notes is absent
  *  by design and never arrives over the wire. */
@@ -92,6 +94,7 @@ export default function PortalJobs() {
   const [noteDraft, setNoteDraft] = useState<Record<string, string>>({});
   const [offline, setOffline] = useState(false);
   const [cachedAt, setCachedAt] = useState(0);
+  const [identity, setIdentity] = useState<IdentityResult | null>(null);
 
   const flash = (m: string) => { setNotice(m); setTimeout(() => setNotice(null), 3200); };
 
@@ -103,6 +106,11 @@ export default function PortalJobs() {
    * user" would bounce a signed-in partner to the login page every time they
    * opened the app somewhere without signal. Instead the whole load falls back
    * to the last good snapshot, and the banner says so.
+   *
+   * A closed session is the one thing that is not offline. A banned partner's
+   * token stops validating, getUser() throws, and telling them they have no
+   * signal while they are standing in a client's hallway with full bars is
+   * worse than useless: they will wait for a network that is already fine.
    */
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -111,20 +119,34 @@ export default function PortalJobs() {
       const { data: userData, error: userErr } = await supabase.auth.getUser();
       if (userErr) throw userErr;
       if (!userData?.user) {
-        // Only a genuine "signed out" redirects. Anything else is a network
-        // problem and falls through to the cache below.
         setOffline(true);
         return;
       }
       const user = userData.user;
 
-      const { data: mine, error: mErr } = await supabase
-        .from("team_members")
-        .select("id,name,role,email,phone,available,unavailable_note,portal_status,active")
-        .eq("user_id", user.id)
-        .limit(1)
-        .maybeSingle();
+      const [{ data: mine, error: mErr }, { data: isStaff }] = await Promise.all([
+        supabase
+          .from("team_members")
+          .select("id,name,role,email,phone,available,unavailable_note,portal_status,active")
+          .eq("user_id", user.id)
+          .limit(1)
+          .maybeSingle(),
+        supabase.rpc("is_admin"),
+      ]);
       if (mErr) throw mErr;
+
+      // Terminal states render a screen; they never redirect. That is the whole
+      // point of the classifier: this used to redirect to /portal/login while
+      // the middleware redirected back to /portal, and the two ran against each
+      // other forever for anybody signed in with no partner row.
+      const identity = classify({ hasSession: true, member: mine ?? null, isAdmin: isStaff === true });
+      if (identity.identity === "staff" || identity.identity === "no-profile") {
+        setIdentity(identity);
+        setLoading(false);
+        return;
+      }
+      setIdentity(null);
+
       if (!mine) { router.replace("/portal/login"); return; }
       setMe(mine as Me);
       setOffline(false);
@@ -145,7 +167,14 @@ export default function PortalJobs() {
         version: "1.0.1",
       });
     } catch (e: any) {
-      const message = String(e?.message ?? e);
+      if (!isNetworkFailure(e)) {
+        // A session that stopped validating, or a query the database refused.
+        // Shown the same way on purpose: presenting a cached job list to
+        // somebody who can no longer sign in is the one case where guessing
+        // wrong is harmful.
+        router.replace("/portal/login");
+        return;
+      }
       const userId = storedUserId();
       const snap = userId ? await readSnapshot(userId) : null;
       if (snap) {
@@ -154,7 +183,7 @@ export default function PortalJobs() {
         setCachedAt(snap.at);
         setOffline(true);
       } else {
-        setError(message || "Could not load your jobs.");
+        setError("Could not reach MALTO, and there is nothing saved on this phone yet.");
       }
     } finally {
       setLoading(false);
@@ -255,6 +284,18 @@ export default function PortalJobs() {
   }, [rows]);
 
   const fallback = useOfflineFallback(false);
+
+  /**
+   * Staff and unlinked accounts get a real screen, not a redirect.
+   *
+   * This is where the loop used to live. Redirecting from here to
+   * /portal/login, while the middleware redirected a signed-in user away from
+   * /portal/login, meant the two never agreed on where to stop. Rendering a
+   * terminal state cannot loop no matter what the middleware does.
+   */
+  if (identity && (identity.identity === "staff" || identity.identity === "no-profile")) {
+    return <PortalIdentityScreen identity={identity} />;
+  }
 
   if (loading && !rows.length && !offline) {
     return (

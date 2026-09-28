@@ -6,6 +6,8 @@ import { createClient } from "@/utils/supabase/client";
 import { PortalChrome } from "@/components/portal/PortalChrome";
 import { storedUserId } from "@/lib/session";
 import { isValidEmail } from "@/lib/email";
+import { classify, isNetworkFailure, type IdentityResult } from "@/lib/portal-identity";
+import { PortalIdentityScreen } from "@/components/portal/PortalIdentityScreen";
 
 /**
  * The partner's own profile: photo, details, where they work, what they take.
@@ -48,6 +50,7 @@ export default function PortalProfile() {
   const [query, setQuery] = useState("");
   const [picking, setPicking] = useState(false);
   const [showResults, setShowResults] = useState(false);
+  const [identity, setIdentity] = useState<IdentityResult | null>(null);
 
   // Password rotation. Present because the admin's "Create account" hands out a
   // generated password, and a credential a partner cannot change is one that
@@ -92,7 +95,7 @@ export default function PortalProfile() {
       if (!userData?.user) { router.replace("/portal/login"); return; }
       const userId = userData.user.id;
 
-      const [mine, cityRes, serviceRes, areaRes, myServiceRes] = await Promise.all([
+      const [mine, cityRes, serviceRes, areaRes, myServiceRes, isStaff] = await Promise.all([
         supabase.from("team_members")
           .select("id,name,phone,email,headline,tagline,bio,years_experience,photo_path,portal_status")
           .eq("user_id", userId).limit(1).maybeSingle(),
@@ -100,9 +103,24 @@ export default function PortalProfile() {
         supabase.from("services").select("id,name,active").eq("active", true).order("name"),
         supabase.from("partner_areas").select("city_code").eq("partner_id", userId),
         supabase.from("partner_services").select("service_id").eq("partner_id", userId),
+        // Unwrap here rather than after: inside Promise.all the element is the
+        // whole PostgREST response, and comparing that to true is always false.
+        supabase.rpc("is_admin").then((r) => r.data as boolean),
       ]);
 
       if (mine.error) throw mine.error;
+
+      // Terminal states render; they never redirect. Same rule as the jobs
+      // screen, and the reason is the loop: redirecting here and being
+      // redirected back by the middleware never terminated.
+      const identity = classify({ hasSession: true, member: mine.data ?? null, isAdmin: isStaff === true });
+      if (identity.identity === "staff" || identity.identity === "no-profile") {
+        setIdentity(identity);
+        setLoading(false);
+        return;
+      }
+      setIdentity(null);
+
       if (!mine.data) { router.replace("/portal/login"); return; }
       setMe(mine.data as Profile);
       setDraft({
@@ -126,7 +144,8 @@ export default function PortalProfile() {
         setPhotoUrl(supabase.storage.from(PHOTO_BUCKET).getPublicUrl(mine.data.photo_path).data.publicUrl);
       }
     } catch (e: any) {
-      setError(e?.message || "Could not load your profile.");
+      if (!isNetworkFailure(e)) { router.replace("/portal/login"); return; }
+      setError("Could not reach MALTO. Check your connection and try again.");
     } finally {
       setLoading(false);
     }
@@ -235,6 +254,8 @@ export default function PortalProfile() {
     () => myAreas.map((code) => cities.find((c) => c.code === code)).filter(Boolean) as City[],
     [myAreas, cities]
   );
+
+  if (identity) return <PortalIdentityScreen identity={identity} />;
 
   if (loading) {
     return <PortalChrome active="profile"><p className="portal-lead" style={{ paddingTop: 24 }}>Loading your profile…</p></PortalChrome>;

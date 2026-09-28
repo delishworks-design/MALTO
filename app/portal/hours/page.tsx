@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/utils/supabase/client";
 import { PortalChrome } from "@/components/portal/PortalChrome";
+import { classify, isNetworkFailure, type IdentityResult } from "@/lib/portal-identity";
+import { PortalIdentityScreen } from "@/components/portal/PortalIdentityScreen";
 
 /**
  * Weekly hours, shown and not editable.
@@ -32,6 +34,7 @@ export default function PortalHours() {
   const [rules, setRules] = useState<Rule[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [identity, setIdentity] = useState<IdentityResult | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -42,25 +45,42 @@ export default function PortalHours() {
       if (!userData?.user) { router.replace("/portal/login"); return; }
       const userId = userData.user.id;
 
-      const [mine, rulesRes] = await Promise.all([
-        supabase.from("team_members").select("id,name").eq("user_id", userId).limit(1).maybeSingle(),
+      const [mine, rulesRes, isStaff] = await Promise.all([
+        supabase.from("team_members").select("id,name,email,portal_status").eq("user_id", userId).limit(1).maybeSingle(),
         // 012_partner_self_service.sql added this read policy: a partner can
         // see their own hours but not change them.
         supabase.from("partner_availability_rules").select("weekday,start_time,end_time").eq("partner_id", userId),
+        // Unwrap here rather than after: inside Promise.all the element is the
+        // whole PostgREST response, and comparing that to true is always false.
+        supabase.rpc("is_admin").then((r) => r.data as boolean),
       ]);
 
       if (mine.error) throw mine.error;
+
+      // Terminal states render; they never redirect. See lib/portal-identity.ts
+      // for why that distinction is the whole fix.
+      const identity = classify({ hasSession: true, member: mine.data ?? null, isAdmin: isStaff === true });
+      if (identity.identity === "staff" || identity.identity === "no-profile") {
+        setIdentity(identity);
+        setLoading(false);
+        return;
+      }
+      setIdentity(null);
+
       if (!mine.data) { router.replace("/portal/login"); return; }
       setName(mine.data.name);
       setRules((rulesRes.data as Rule[]) ?? []);
     } catch (e: any) {
-      setError(e?.message || "Could not load your hours.");
+      if (!isNetworkFailure(e)) { router.replace("/portal/login"); return; }
+      setError("Could not reach MALTO. Check your connection and try again.");
     } finally {
       setLoading(false);
     }
   }, [router]);
 
   useEffect(() => { void load(); }, [load]);
+
+  if (identity) return <PortalIdentityScreen identity={identity} />;
 
   if (loading) {
     return <PortalChrome active="hours"><p className="portal-lead" style={{ paddingTop: 24 }}>Loading your hours…</p></PortalChrome>;
